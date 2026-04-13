@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tab Group Collections</title>
+    <link rel="stylesheet" href="sidebar.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="hero">
+        <p class="eyebrow">Tab Group</p>
+        <h1>Collections</h1>
+        <p class="intro">
+          All collections stay visible here. New groups inherit the closest sibling collection,
+          and each collection keeps a restorable snapshot of its latest known groups.
+        </p>
+        <div class="toolbar">
+          <label class="control filter-control">
+            <span>Filter</span>
+            <input id="filter-input" type="search" placeholder="Collection or group name">
+          </label>
+          <label class="control sort-control">
+            <span>Sort</span>
+            <select id="sort-select">
+              <option value="last-active">Last used</option>
+              <option value="name">A-Z</option>
+            </select>
+          </label>
+        </div>
+        <div class="filter-state hidden" id="filter-state" aria-live="polite">
+          <span id="filter-state-text"></span>
+          <button class="action-button filter-clear-button" id="clear-filter-button" type="button">
+            Clear
+          </button>
+        </div>
+        <div class="hero-actions">
+          <button class="action-button hero-action-button" id="create-collection-button" type="button">
+            New Collection
+          </button>
+        </div>
+        <div class="status-row">
+          <p class="status" id="status" aria-live="polite"></p>
+          <div class="hero-links">
+            <button class="link-button" id="open-all-button" type="button">Expand All</button>
+            <button class="link-button" id="close-all-button" type="button">Collapse All</button>
+          </div>
+        </div>
+      </section>
+      <section class="error-banner hidden" id="error-banner" aria-live="assertive"></section>
+      <section class="collections" id="collections"></section>
+    </main>
+    <script src="sidebar.js"></script>
+  </body>
+</html>

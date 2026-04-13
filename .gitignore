@@ -1,0 +1,45 @@
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+__MACOSX/
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.Spotlight-V100/
+.Trashes/
+ehthumbs.db
+
+# Editor and IDE files
+.idea/
+.vscode/
+*.iml
+*.suo
+*.user
+*.userossc
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+
+# Extension build artifacts
+web-ext-artifacts/
+artifacts/
+dist/
+build/
+*.xpi
+*.zip
+
+# Local scratch files
+tmp/
+
+# Keep the extension icon directory tracked on case-insensitive filesystems.
+!icons/
+!icons/**

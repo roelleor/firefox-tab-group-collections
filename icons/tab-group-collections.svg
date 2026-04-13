@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Tab Group Collections">
+  <style>
+    .tab-back {
+      fill: #b9cec5;
+    }
+
+    .tab-front {
+      fill: #193b31;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .tab-back {
+        fill: #7f8691;
+      }
+
+      .tab-front {
+        fill: #f1f2f4;
+      }
+    }
+  </style>
+  <path
+    class="tab-back"
+    d="M7 8h18l6 7h12c6.6 0 12 5.4 12 12v14H19c-6.6 0-12-5.4-12-12z"
+  />
+  <path
+    class="tab-front"
+    d="M4 24h18l6 7h16c8.3 0 15 6.7 15 15v14H19c-8.3 0-15-6.7-15-15z"
+  />
+</svg>
