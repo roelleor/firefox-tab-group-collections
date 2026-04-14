@@ -1,0 +1,26 @@
+Tab Group Collections Changelist
+
+Format: plain text, based on Keep a Changelog.
+
+1.1.0 - 2026-04-14
+
+Added
+- Dedicated Uncategorized bucket for groups kept after deleting a collection only.
+- Bulk "Delete All Groups" action for Uncategorized.
+
+Changed
+- Live groups now use a small filled square marker; closed groups use a small outlined square marker.
+
+Fixed
+- "Delete Collection Only" now moves remaining groups into Uncategorized instead of creating fresh ad hoc collections.
+- "Delete Collection + Groups" now requires confirmation before destructive removal.
+
+1.0.0 - 2026-04-14
+
+Added
+- Initial stable release of collection-based organization for native Firefox tab groups.
+- Sidebar management UI for collections and groups.
+- Quick popup for fast collection access.
+- Collection creation, rename, pinning, delete, and open flows.
+- Group rename, move, delete, and drag-and-drop reordering.
+- Saved snapshot support for reopening groups and collections later.

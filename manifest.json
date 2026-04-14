@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Tab Group Collections",
-  "version": "0.9.0",
+  "version": "1.1.0",
   "description": "Add collection-level organization on top of native Firefox tab groups.",
   "icons": {
     "48": "icons/tab-group-collections.svg",

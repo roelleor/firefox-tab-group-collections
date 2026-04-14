@@ -5,6 +5,19 @@ const SYNC_DELAY_MS = 180;
 const MAX_BADGE_COUNT = 99;
 const DEFAULT_COLLECTION_NAME = 'Untitled collection';
 const DEFAULT_GROUP_COLOR = 'grey';
+const UNCATEGORIZED_COLLECTION_ID = 'collection-uncategorized';
+const UNCATEGORIZED_COLLECTION_NAME = 'Uncategorized';
+const GROUP_COLOR_SEQUENCE = [
+  'blue',
+  'cyan',
+  'green',
+  'orange',
+  'pink',
+  'purple',
+  'red',
+  'yellow',
+  'grey'
+];
 
 let syncTimerId = null;
 let operationQueue = Promise.resolve();
@@ -71,6 +84,10 @@ function getCollectionName(name) {
   return trimmed || DEFAULT_COLLECTION_NAME;
 }
 
+function isUncategorizedCollectionId(collectionId) {
+  return collectionId === UNCATEGORIZED_COLLECTION_ID;
+}
+
 function getRequestedCollectionName(name) {
   if (name === undefined || name === null) {
     return null;
@@ -85,7 +102,28 @@ function getRequestedCollectionName(name) {
 }
 
 function getGroupColor(color) {
-  return typeof color === 'string' && color ? color : DEFAULT_GROUP_COLOR;
+  return typeof color === 'string' && GROUP_COLOR_SEQUENCE.includes(color)
+    ? color
+    : DEFAULT_GROUP_COLOR;
+}
+
+function getRequestedGroupColor(color) {
+  const normalized = typeof color === 'string' ? color.trim() : '';
+  if (!GROUP_COLOR_SEQUENCE.includes(normalized)) {
+    throw new Error('Unsupported tab group color.');
+  }
+
+  return normalized;
+}
+
+function pickNextGroupColor(groups) {
+  const usedColors = new Set(groups.map((group) => getGroupColor(group.color)));
+  const unusedColor = GROUP_COLOR_SEQUENCE.find((color) => !usedColors.has(color));
+  if (unusedColor) {
+    return unusedColor;
+  }
+
+  return GROUP_COLOR_SEQUENCE[groups.length % GROUP_COLOR_SEQUENCE.length];
 }
 
 function getSnapshotUrl(url) {
@@ -151,11 +189,14 @@ function normalizeSnapshot(snapshot) {
 
 function normalizeCollectionRecord(collection, collectionId) {
   const now = Date.now();
+  const isUncategorized = isUncategorizedCollectionId(collectionId);
 
   return {
     id: collectionId,
-    name: getCollectionName(collection?.name),
-    pinned: Boolean(collection?.pinned),
+    name: isUncategorized
+      ? UNCATEGORIZED_COLLECTION_NAME
+      : getCollectionName(collection?.name),
+    pinned: isUncategorized ? false : Boolean(collection?.pinned),
     createdAt: Number.isFinite(collection?.createdAt) ? collection.createdAt : now,
     updatedAt: Number.isFinite(collection?.updatedAt) ? collection.updatedAt : now,
     lastActiveAt: Number.isFinite(collection?.lastActiveAt) ? collection.lastActiveAt : 0,
@@ -189,7 +230,28 @@ async function saveState(state) {
   await browser.storage.local.set({ [STORAGE_KEY]: state });
 }
 
+function createUncategorizedCollectionRecord(state) {
+  const now = Date.now();
+  const collection = {
+    id: UNCATEGORIZED_COLLECTION_ID,
+    name: UNCATEGORIZED_COLLECTION_NAME,
+    pinned: false,
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: 0,
+    snapshotUpdatedAt: 0,
+    snapshot: getDefaultSnapshot()
+  };
+
+  state.collections[collection.id] = collection;
+  return collection;
+}
+
 function createCollectionRecord(state, collectionId = createId('collection'), requestedName = null) {
+  if (isUncategorizedCollectionId(collectionId)) {
+    return createUncategorizedCollectionRecord(state);
+  }
+
   const now = Date.now();
   const explicitName = getRequestedCollectionName(requestedName);
   const collection = {
@@ -210,6 +272,10 @@ function createCollectionRecord(state, collectionId = createId('collection'), re
 function ensureCollectionRecord(state, collectionId) {
   if (state.collections[collectionId]) {
     return state.collections[collectionId];
+  }
+
+  if (isUncategorizedCollectionId(collectionId)) {
+    return createUncategorizedCollectionRecord(state);
   }
 
   return createCollectionRecord(state, collectionId);
@@ -763,6 +829,7 @@ function buildSidebarSnapshot(syncedState, currentWindowId) {
     collections.push({
       id: collectionId,
       name: collection.name,
+      isUncategorized: isUncategorizedCollectionId(collectionId),
       isPinned: Boolean(collection.pinned),
       isCurrent: collectionId === currentCollectionId,
       lastActiveAt: collection.lastActiveAt,
@@ -776,11 +843,28 @@ function buildSidebarSnapshot(syncedState, currentWindowId) {
     });
   }
 
-  const availableCollections = collections
+  const collectionsForDisplay = collections.filter((collection) => (
+    !collection.isUncategorized || collection.liveGroupCount > 0 || collection.snapshotGroupCount > 0
+  ));
+
+  const availableCollections = [
+    ...collections,
+    ...(collections.some((collection) => collection.id === UNCATEGORIZED_COLLECTION_ID)
+      ? []
+      : [{
+        id: UNCATEGORIZED_COLLECTION_ID,
+        name: UNCATEGORIZED_COLLECTION_NAME,
+        isPinned: false,
+        isUncategorized: true,
+        lastActiveAt: 0,
+        snapshotUpdatedAt: 0
+      }])
+  ]
     .map((collection) => ({
       id: collection.id,
       name: collection.name,
       isPinned: collection.isPinned,
+      isUncategorized: Boolean(collection.isUncategorized),
       lastActiveAt: collection.lastActiveAt,
       snapshotUpdatedAt: collection.snapshotUpdatedAt
     }))
@@ -792,11 +876,11 @@ function buildSidebarSnapshot(syncedState, currentWindowId) {
   return {
     currentWindowId,
     currentCollectionId,
-    collections,
+    collections: collectionsForDisplay,
     availableCollections,
-    totalCollectionCount: collections.length,
-    totalLiveGroupCount: collections.reduce((count, collection) => count + collection.liveGroupCount, 0),
-    totalGroupCount: collections.reduce((count, collection) => count + collection.groups.length, 0)
+    totalCollectionCount: collectionsForDisplay.length,
+    totalLiveGroupCount: collectionsForDisplay.reduce((count, collection) => count + collection.liveGroupCount, 0),
+    totalGroupCount: collectionsForDisplay.reduce((count, collection) => count + collection.groups.length, 0)
   };
 }
 
@@ -1091,6 +1175,10 @@ async function renameCollection(collectionId, name, currentWindowId) {
       throw new Error('Collection not found.');
     }
 
+    if (isUncategorizedCollectionId(collectionId)) {
+      throw new Error('Uncategorized cannot be renamed.');
+    }
+
     if (collection.name !== trimmedName) {
       collection.name = trimmedName;
       collection.updatedAt = Date.now();
@@ -1113,6 +1201,10 @@ async function setCollectionPinned(collectionId, pinned, currentWindowId) {
 
     if (!collection) {
       throw new Error('Collection not found.');
+    }
+
+    if (isUncategorizedCollectionId(collectionId)) {
+      throw new Error('Uncategorized cannot be pinned.');
     }
 
     if (collection.pinned !== Boolean(pinned)) {
@@ -1138,6 +1230,10 @@ async function focusCollection(collectionId, currentWindowId) {
 
     if (!collection) {
       throw new Error('Collection not found.');
+    }
+
+    if (isUncategorizedCollectionId(collectionId)) {
+      throw new Error('Uncategorized cannot be deleted.');
     }
 
     const entriesByCollection = buildEntriesByCollection(syncedState.runtime.groupsByWindow);
@@ -1291,6 +1387,64 @@ async function renameGroup(sourceKind, groupId, snapshotGroupId, collectionId, t
   });
 }
 
+async function updateGroupColor(
+  sourceKind,
+  groupId,
+  snapshotGroupId,
+  collectionId,
+  color,
+  currentWindowId
+) {
+  if (!hasRequiredApis()) {
+    throw new Error('Tab group APIs are unavailable in this Firefox build.');
+  }
+
+  if (sourceKind !== 'live' && sourceKind !== 'snapshot') {
+    throw new Error('Unknown group color mode.');
+  }
+
+  return enqueueOperation(async () => {
+    const syncedState = await syncCollections();
+    const state = syncedState.state;
+    const nextColor = getRequestedGroupColor(color);
+
+    if (sourceKind === 'live') {
+      const entry = findGroupEntry(syncedState.runtime.groupsByWindow, groupId);
+      if (!entry) {
+        throw new Error('Tab group not found.');
+      }
+
+      await browser.tabGroups.update(groupId, { color: nextColor });
+      const refreshedState = await syncCollections();
+      return buildSidebarSnapshot(refreshedState, currentWindowId || entry.windowId);
+    }
+
+    const collection = state.collections[collectionId];
+    if (!collection) {
+      throw new Error('Collection not found.');
+    }
+
+    let found = false;
+    const groups = collection.snapshot.groups.map((group) => (
+      group.id === snapshotGroupId
+        ? (() => {
+          found = true;
+          return {
+            ...cloneSnapshotGroup(group),
+            color: nextColor
+          };
+        })()
+        : cloneSnapshotGroup(group)
+    ));
+    if (!found) {
+      throw new Error('Saved group not found.');
+    }
+    setCollectionSnapshot(collection, groups);
+    await saveState(state);
+    return buildSidebarSnapshot({ state, runtime: syncedState.runtime }, currentWindowId);
+  });
+}
+
 async function createTabsForSnapshotGroup(snapshotGroup, collectionId, windowId, seedTab) {
   const snapshotTabs = snapshotGroup.tabs.length ? snapshotGroup.tabs : [{ url: 'about:blank' }];
   const createdTabs = [];
@@ -1351,6 +1505,7 @@ async function createGroup(collectionId, currentWindowId, title) {
       throw new Error('Collection not found.');
     }
 
+    const nextColor = pickNextGroupColor(collection.snapshot.groups);
     const entriesByCollection = buildEntriesByCollection(syncedState.runtime.groupsByWindow);
     const liveEntries = entriesByCollection.get(collectionId) || [];
     const placement = getAppendPlacementForCollection(liveEntries, currentWindowId);
@@ -1366,7 +1521,7 @@ async function createGroup(collectionId, currentWindowId, title) {
 
     await browser.tabGroups.update(groupId, {
       title: normalizeStoredGroupTitle(title),
-      color: DEFAULT_GROUP_COLOR,
+      color: nextColor,
       collapsed: false
     });
 
@@ -1525,11 +1680,12 @@ async function deleteCollection(collectionId, mode, currentWindowId) {
       return buildSidebarSnapshot(refreshedState, currentWindowId);
     }
 
+    const uncategorizedCollection = ensureCollectionRecord(state, UNCATEGORIZED_COLLECTION_ID);
+
     for (const entry of liveEntries) {
-      const nextCollection = createCollectionRecord(state);
       const updatedMembership = {
         groupKey: entry.membership.groupKey,
-        collectionId: nextCollection.id
+        collectionId: uncategorizedCollection.id
       };
 
       await Promise.all(entry.tabs.map((tab) => setTabMembership(tab.id, updatedMembership)));
@@ -1541,8 +1697,13 @@ async function deleteCollection(collectionId, mode, currentWindowId) {
         continue;
       }
 
-      const nextCollection = createCollectionRecord(state);
-      setCollectionSnapshot(nextCollection, [snapshotGroup]);
+      const targetGroups = insertSnapshotGroup(
+        uncategorizedCollection.snapshot.groups,
+        snapshotGroup,
+        null,
+        'append'
+      );
+      setCollectionSnapshot(uncategorizedCollection, targetGroups);
     }
 
     delete state.collections[collectionId];
@@ -1829,6 +1990,19 @@ browser.runtime.onMessage.addListener((message) => {
       message.snapshotGroupId,
       message.collectionId,
       message.title,
+      message.currentWindowId
+    ).catch((error) => ({
+      error: error.message
+    }));
+  }
+
+  if (message.type === 'sidebar:updateGroupColor') {
+    return updateGroupColor(
+      message.sourceKind,
+      message.groupId,
+      message.snapshotGroupId,
+      message.collectionId,
+      message.color,
       message.currentWindowId
     ).catch((error) => ({
       error: error.message

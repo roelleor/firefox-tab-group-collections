@@ -13,6 +13,17 @@ const GROUP_COLOR_MAP = {
   red: '#d1605a',
   yellow: '#d3b244'
 };
+const GROUP_COLOR_SEQUENCE = [
+  'blue',
+  'cyan',
+  'green',
+  'orange',
+  'pink',
+  'purple',
+  'red',
+  'yellow',
+  'grey'
+];
 
 const filterInputNode = document.getElementById('filter-input');
 const filterStateNode = document.getElementById('filter-state');
@@ -35,6 +46,7 @@ let lastSnapshot = null;
 let openCollectionMenuId = null;
 let openMovePanelKey = null;
 let openDeleteMenuId = null;
+let openColorMenuKey = null;
 let refreshTimerId = null;
 let dragState = null;
 let dragSourceNode = null;
@@ -302,6 +314,49 @@ function buildGroupMeta(group) {
   return parts.join(' • ');
 }
 
+function buildColorMenu(group) {
+  const menu = createNode('div', 'group-color-menu');
+  menu.classList.toggle('hidden', openColorMenuKey !== group.key);
+
+  for (const color of GROUP_COLOR_SEQUENCE) {
+    const swatchButton = createNode('button', 'group-color-option');
+    swatchButton.type = 'button';
+    swatchButton.title = `Set color to ${color}`;
+    swatchButton.setAttribute('aria-label', `Set color to ${color}`);
+    swatchButton.classList.toggle('selected', color === group.color);
+
+    const swatch = createNode('span', 'group-color-option-swatch');
+    swatch.style.backgroundColor = GROUP_COLOR_MAP[color];
+    swatchButton.appendChild(swatch);
+
+    swatchButton.addEventListener('click', async () => {
+      if (color === group.color) {
+        openColorMenuKey = null;
+        renderSnapshot(lastSnapshot);
+        return;
+      }
+
+      await runAction('Updating group color…', async () => {
+        const snapshot = await sendMessage({
+          type: 'sidebar:updateGroupColor',
+          currentWindowId,
+          sourceKind: group.kind,
+          groupId: group.runtimeGroupId || null,
+          snapshotGroupId: group.snapshotGroupId,
+          collectionId: group.collectionId,
+          color
+        });
+        openColorMenuKey = null;
+        renderSnapshot(snapshot);
+      });
+    });
+
+    menu.appendChild(swatchButton);
+  }
+
+  return menu;
+}
+
 function resetNewCollectionOption(moveSelect) {
   const newOption = moveSelect.querySelector(`option[value="${NEW_COLLECTION_OPTION}"]`);
   if (newOption) {
@@ -370,7 +425,18 @@ function clearDragState() {
   document.body.classList.remove('is-dragging');
 }
 
+function isGroupDragExcludedTarget(target) {
+  return Boolean(target?.closest(
+    '.inline-icon-button, .group-dot-button, .move-button, .group-delete-button, .group-color-option'
+  ));
+}
+
 function startGroupDrag(event, group, collectionId, row) {
+  if (isGroupDragExcludedTarget(event.target)) {
+    event.preventDefault();
+    return;
+  }
+
   dragState = {
     kind: group.kind,
     groupId: group.runtimeGroupId || null,
@@ -527,6 +593,26 @@ function createGroupContent(group) {
   const wrapper = createNode('div', 'group-content');
   const heading = createNode('div', 'group-heading');
   const titleBar = createNode('div', 'group-title-bar');
+  const dotButton = createNode('button', 'group-dot-button');
+  dotButton.type = 'button';
+  dotButton.title = `Change color for "${group.title}"`;
+  dotButton.setAttribute('aria-label', `Change color for ${group.title}`);
+  dotButton.addEventListener('click', () => {
+    openColorMenuKey = openColorMenuKey === group.key ? null : group.key;
+    openMovePanelKey = null;
+    openDeleteMenuId = null;
+    renderSnapshot(lastSnapshot);
+  });
+
+  const dot = createNode('span', 'group-dot');
+  dot.classList.add(group.kind === 'snapshot' ? 'group-dot-closed' : 'group-dot-live');
+  dot.style.borderColor = GROUP_COLOR_MAP[group.color] || '#8c9097';
+  if (group.kind !== 'snapshot') {
+    dot.style.backgroundColor = GROUP_COLOR_MAP[group.color] || '#8c9097';
+  }
+  dotButton.appendChild(dot);
+  titleBar.appendChild(dotButton);
+
   const groupButton = createNode('button', 'group-button');
   groupButton.type = 'button';
   groupButton.addEventListener('click', async () => {
@@ -552,9 +638,6 @@ function createGroupContent(group) {
   });
 
   const titleRow = createNode('div', 'group-title-row');
-  const dot = createNode('span', 'group-dot');
-  dot.style.backgroundColor = GROUP_COLOR_MAP[group.color] || '#8c9097';
-  titleRow.appendChild(dot);
   titleRow.appendChild(createNode('span', 'group-title', group.title));
   groupButton.appendChild(titleRow);
   titleBar.appendChild(groupButton);
@@ -586,6 +669,7 @@ function createGroupContent(group) {
 
   wrapper.appendChild(heading);
   wrapper.appendChild(createNode('div', 'group-meta', buildGroupMeta(group)));
+  wrapper.appendChild(buildColorMenu(group));
 
   return wrapper;
 }
@@ -593,6 +677,15 @@ function createGroupContent(group) {
 function renderGroup(group, collectionId, availableCollections) {
   const row = createNode('article', 'group-row');
   const main = createNode('div', 'group-main');
+  if (group.kind === 'live' || group.kind === 'snapshot') {
+    main.draggable = true;
+    main.addEventListener('dragstart', (event) => {
+      startGroupDrag(event, group, collectionId, row);
+    });
+    main.addEventListener('dragend', () => {
+      clearDragState();
+    });
+  }
   main.appendChild(createGroupContent({
     ...group,
     collectionId
@@ -619,6 +712,7 @@ function renderGroup(group, collectionId, availableCollections) {
     moveButton.title = `Move "${group.title}" to another collection`;
     moveButton.addEventListener('click', () => {
       openMovePanelKey = openMovePanelKey === group.key ? null : group.key;
+      openColorMenuKey = null;
       openDeleteMenuId = null;
       renderSnapshot(lastSnapshot);
     });
@@ -649,6 +743,7 @@ function renderGroup(group, collectionId, availableCollections) {
         snapshotGroupId: group.snapshotGroupId || null,
         collectionId
       });
+      openColorMenuKey = null;
       openMovePanelKey = null;
       renderSnapshot(snapshot);
     });
@@ -701,6 +796,7 @@ function renderGroup(group, collectionId, availableCollections) {
         : null;
 
       if (targetCollectionId === collectionId && !targetCollectionName) {
+        openColorMenuKey = null;
         openMovePanelKey = null;
         renderSnapshot(lastSnapshot);
         return;
@@ -728,6 +824,7 @@ function renderGroup(group, collectionId, availableCollections) {
             collectionId: targetCollectionId,
             targetCollectionName
           });
+        openColorMenuKey = null;
         openMovePanelKey = null;
         renderSnapshot(snapshot);
       });
@@ -736,6 +833,7 @@ function renderGroup(group, collectionId, availableCollections) {
     const cancelButton = createNode('button', 'action-button', 'Cancel');
     cancelButton.type = 'button';
     cancelButton.addEventListener('click', () => {
+      openColorMenuKey = null;
       openMovePanelKey = null;
       renderSnapshot(lastSnapshot);
     });
@@ -755,13 +853,12 @@ function renderCollection(collection, availableCollections, filterActive) {
   attachCollectionDropTarget(header, card, collection);
   const collapsed = isCollectionCollapsed(collection.id, filterActive);
   const content = createNode('div', 'collection-summary');
-  const titleBar = createNode('div', 'collection-title-bar');
-  const titleButton = createNode('button', 'collection-title-button');
-  titleButton.type = 'button';
-  titleButton.title = collapsed ? 'Expand collection' : 'Collapse collection';
-  titleButton.addEventListener('click', () => {
+  content.title = collapsed ? 'Expand collection' : 'Collapse collection';
+  content.addEventListener('click', () => {
     toggleCollectionCollapsed(collection.id);
   });
+  const titleBar = createNode('div', 'collection-title-bar');
+  const titleButton = createNode('div', 'collection-title-button');
   titleButton.appendChild(createNode('h2', 'collection-title', collection.name));
   titleBar.appendChild(titleButton);
 
@@ -769,7 +866,8 @@ function renderCollection(collection, availableCollections, filterActive) {
     const renameCollectionButton = createNode('button', 'inline-icon-button', '✎');
     renameCollectionButton.type = 'button';
     renameCollectionButton.title = `Rename "${collection.name}"`;
-    renameCollectionButton.addEventListener('click', async () => {
+    renameCollectionButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
       const nextName = window.prompt('Rename collection', collection.name);
       if (nextName === null) {
         return;
@@ -786,7 +884,9 @@ function renderCollection(collection, availableCollections, filterActive) {
         renderSnapshot(snapshot);
       });
     });
-    titleBar.appendChild(renameCollectionButton);
+    if (!collection.isUncategorized) {
+      titleBar.appendChild(renameCollectionButton);
+    }
   }
 
   const badgeRow = createNode('div', 'collection-badges');
@@ -812,7 +912,8 @@ function renderCollection(collection, availableCollections, filterActive) {
   const toggleButton = createNode('button', 'toggle-button', collapsed ? '›' : '⌄');
   toggleButton.type = 'button';
   toggleButton.title = collapsed ? 'Expand collection' : 'Collapse collection';
-  toggleButton.addEventListener('click', () => {
+  toggleButton.addEventListener('click', (event) => {
+    event.stopPropagation();
     toggleCollectionCollapsed(collection.id);
   });
   header.appendChild(toggleButton);
@@ -824,85 +925,112 @@ function renderCollection(collection, availableCollections, filterActive) {
 
   const actions = createNode('div', 'collection-actions');
 
-  const openButton = createNode('button', 'action-button', 'Open');
-  openButton.type = 'button';
-  openButton.addEventListener('click', async () => {
-    if (collection.liveGroupCount > 0 && collection.snapshotGroupCount > collection.liveGroupCount) {
-      await runAction('Opening missing tab groups…', async () => {
+  if (!collection.isUncategorized) {
+    const openButton = createNode('button', 'action-button', 'Open');
+    openButton.type = 'button';
+    openButton.addEventListener('click', async () => {
+      if (collection.liveGroupCount > 0 && collection.snapshotGroupCount > collection.liveGroupCount) {
+        await runAction('Opening missing tab groups…', async () => {
+          const snapshot = await sendMessage({
+            type: 'sidebar:openCollection',
+            currentWindowId,
+            collectionId: collection.id,
+            targetMode: 'append'
+          });
+          openCollectionMenuId = null;
+          renderSnapshot(snapshot);
+        });
+        return;
+      }
+
+      if (collection.liveGroupCount > 0) {
+        await runAction('Opening collection…', async () => {
+          const snapshot = await sendMessage({
+            type: 'sidebar:focusCollection',
+            currentWindowId,
+            collectionId: collection.id
+          });
+          openCollectionMenuId = null;
+          renderSnapshot(snapshot);
+        });
+        return;
+      }
+
+      openCollectionMenuId = openCollectionMenuId === collection.id ? null : collection.id;
+      openDeleteMenuId = null;
+      renderSnapshot(lastSnapshot);
+    });
+    actions.appendChild(openButton);
+
+    const newGroupButton = createNode('button', 'action-button', 'New Group');
+    newGroupButton.type = 'button';
+    newGroupButton.addEventListener('click', async () => {
+      const nextTitle = window.prompt('New tab group name', '');
+      if (nextTitle === null) {
+        return;
+      }
+
+      await runAction('Creating tab group…', async () => {
         const snapshot = await sendMessage({
-          type: 'sidebar:openCollection',
+          type: 'sidebar:createGroup',
           currentWindowId,
           collectionId: collection.id,
-          targetMode: 'append'
+          title: nextTitle
         });
-        openCollectionMenuId = null;
         renderSnapshot(snapshot);
       });
-      return;
-    }
+    });
+    actions.appendChild(newGroupButton);
+  } else {
+    const deleteAllGroupsButton = createNode('button', 'action-button danger-button', 'Delete All Groups');
+    deleteAllGroupsButton.type = 'button';
+    deleteAllGroupsButton.addEventListener('click', async () => {
+      const confirmed = window.confirm(
+        'Delete all groups in Uncategorized?'
+      );
+      if (!confirmed) {
+        return;
+      }
 
-    if (collection.liveGroupCount > 0) {
-      await runAction('Opening collection…', async () => {
+      await runAction('Deleting all uncategorized groups…', async () => {
         const snapshot = await sendMessage({
-          type: 'sidebar:focusCollection',
+          type: 'sidebar:deleteCollection',
           currentWindowId,
-          collectionId: collection.id
+          collectionId: collection.id,
+          mode: 'collection-and-groups'
         });
-        openCollectionMenuId = null;
+        openDeleteMenuId = null;
         renderSnapshot(snapshot);
       });
-      return;
-    }
-
-    openCollectionMenuId = openCollectionMenuId === collection.id ? null : collection.id;
-    openDeleteMenuId = null;
-    renderSnapshot(lastSnapshot);
-  });
-  actions.appendChild(openButton);
-
-  const newGroupButton = createNode('button', 'action-button', 'New Group');
-  newGroupButton.type = 'button';
-  newGroupButton.addEventListener('click', async () => {
-    const nextTitle = window.prompt('New tab group name', '');
-    if (nextTitle === null) {
-      return;
-    }
-
-    await runAction('Creating tab group…', async () => {
-      const snapshot = await sendMessage({
-        type: 'sidebar:createGroup',
-        currentWindowId,
-        collectionId: collection.id,
-        title: nextTitle
-      });
-      renderSnapshot(snapshot);
     });
-  });
-  actions.appendChild(newGroupButton);
+    actions.appendChild(deleteAllGroupsButton);
+  }
 
-  const deleteButton = createNode('button', 'action-button', 'Delete');
-  deleteButton.type = 'button';
-  deleteButton.addEventListener('click', () => {
-    openDeleteMenuId = openDeleteMenuId === collection.id ? null : collection.id;
-    openCollectionMenuId = null;
-    renderSnapshot(lastSnapshot);
-  });
-  actions.appendChild(deleteButton);
-
-  const pinButton = createNode('button', 'action-button', collection.isPinned ? 'Unpin' : 'Pin');
-  pinButton.type = 'button';
-  pinButton.addEventListener('click', async () => {
-    await runAction(collection.isPinned ? 'Unpinning collection…' : 'Pinning collection…', async () => {
-      const snapshot = await sendMessage({
-        type: 'sidebar:setCollectionPinned',
-        currentWindowId,
-        collectionId: collection.id,
-        pinned: !collection.isPinned
-      });
-      renderSnapshot(snapshot);
+  if (!collection.isUncategorized) {
+    const deleteButton = createNode('button', 'action-button', 'Delete');
+    deleteButton.type = 'button';
+    deleteButton.addEventListener('click', () => {
+      openDeleteMenuId = openDeleteMenuId === collection.id ? null : collection.id;
+      openCollectionMenuId = null;
+      renderSnapshot(lastSnapshot);
     });
-  });
-  actions.appendChild(pinButton);
+    actions.appendChild(deleteButton);
+
+    const pinButton = createNode('button', 'action-button', collection.isPinned ? 'Unpin' : 'Pin');
+    pinButton.type = 'button';
+    pinButton.addEventListener('click', async () => {
+      await runAction(collection.isPinned ? 'Unpinning collection…' : 'Pinning collection…', async () => {
+        const snapshot = await sendMessage({
+          type: 'sidebar:setCollectionPinned',
+          currentWindowId,
+          collectionId: collection.id,
+          pinned: !collection.isPinned
+        });
+        renderSnapshot(snapshot);
+      });
+    });
+    actions.appendChild(pinButton);
+  }
 
   body.appendChild(actions);
 
@@ -972,6 +1100,13 @@ function renderCollection(collection, availableCollections, filterActive) {
   const deleteGroupsButton = createNode('button', 'action-button danger-button', 'Delete Collection + Groups');
   deleteGroupsButton.type = 'button';
   deleteGroupsButton.addEventListener('click', async () => {
+    const confirmed = window.confirm(
+      `Delete the collection "${collection.name}" and all of its groups?`
+    );
+    if (!confirmed) {
+      return;
+    }
+
     await runAction('Deleting collection and groups…', async () => {
       const snapshot = await sendMessage({
         type: 'sidebar:deleteCollection',
@@ -996,7 +1131,9 @@ function renderCollection(collection, availableCollections, filterActive) {
     deleteMenu.append(deleteGroupsButton);
   }
   deleteMenu.append(cancelDeleteButton);
-  body.appendChild(deleteMenu);
+  if (!collection.isUncategorized) {
+    body.appendChild(deleteMenu);
+  }
 
   const groupList = createNode('div', 'group-list');
   for (const group of collection.visibleGroups) {
@@ -1013,6 +1150,23 @@ function renderEmptyState(message) {
   const node = createNode('section', 'empty-state');
   node.textContent = message;
   return node;
+}
+
+function renderCollectionSection(title, collections, availableCollections, filterActive) {
+  const section = createNode('section', 'collection-section');
+  section.appendChild(createNode('h2', 'collection-section-title', title));
+
+  const list = createNode('div', 'collection-section-list');
+  for (const collection of collections) {
+    list.appendChild(renderCollection(
+      collection,
+      availableCollections,
+      filterActive
+    ));
+  }
+
+  section.appendChild(list);
+  return section;
 }
 
 function renderSnapshot(snapshot) {
@@ -1053,9 +1207,32 @@ function renderSnapshot(snapshot) {
     return;
   }
 
-  for (const collection of visibleCollections) {
-    collectionsNode.appendChild(renderCollection(
-      collection,
+  const pinnedCollections = visibleCollections.filter((collection) => collection.isPinned && !collection.isUncategorized);
+  const otherCollections = visibleCollections.filter((collection) => !collection.isPinned && !collection.isUncategorized);
+  const uncategorizedCollections = visibleCollections.filter((collection) => collection.isUncategorized);
+
+  if (pinnedCollections.length) {
+    collectionsNode.appendChild(renderCollectionSection(
+      'Pinned',
+      pinnedCollections,
+      snapshot.availableCollections,
+      filterActive
+    ));
+  }
+
+  if (otherCollections.length) {
+    collectionsNode.appendChild(renderCollectionSection(
+      'Collections',
+      otherCollections,
+      snapshot.availableCollections,
+      filterActive
+    ));
+  }
+
+  if (uncategorizedCollections.length) {
+    collectionsNode.appendChild(renderCollectionSection(
+      'Uncategorized',
+      uncategorizedCollections,
       snapshot.availableCollections,
       filterActive
     ));
