@@ -1,0 +1,12 @@
+{
+  "name": "tab-group-collections",
+  "private": true,
+  "version": "1.1.0",
+  "description": "Build and release tooling for the Tab Group Collections Firefox extension.",
+  "scripts": {
+    "build": "./build.sh",
+    "check:js": "node --check background.js && node --check sidebar.js && node --check popup.js",
+    "test": "node --test",
+    "release-notes": "node scripts/extract-release-notes.mjs"
+  }
+}

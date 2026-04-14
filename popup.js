@@ -196,7 +196,8 @@ function renderSnapshot(snapshot, currentWindowId) {
   sectionsNode.replaceChildren();
 
   const visibleCollections = snapshot.collections.filter((collection) => (
-    collection.liveGroupCount > 0 || collection.snapshotGroupCount > 0
+    !collection.isUncategorized &&
+    (collection.liveGroupCount > 0 || collection.snapshotGroupCount > 0)
   ));
 
   if (!visibleCollections.length) {

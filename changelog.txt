@@ -1,4 +1,4 @@
-Tab Group Collections Changelist
+Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 

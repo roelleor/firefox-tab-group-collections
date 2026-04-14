@@ -1,0 +1,99 @@
+name: Publish to AMO
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run release tooling tests
+        run: |
+          set -euo pipefail
+          npm test
+
+      - name: Check extension JavaScript syntax
+        run: |
+          set -euo pipefail
+          npm run check:js
+
+      - name: Verify tag version and build AMO metadata
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          RUNNER_TEMP_DIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${TAG_NAME#v}"
+          MANIFEST_VERSION="$(node -p "require('./manifest.json').version")"
+
+          if [ "$VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Tag version ($VERSION) does not match manifest version ($MANIFEST_VERSION)." >&2
+            exit 1
+          fi
+
+          npm run release-notes -- \
+            --version "$VERSION" \
+            --changelog changelog.txt \
+            --output "$RUNNER_TEMP_DIR/amo-metadata.json"
+
+      - name: Build release source tree
+        env:
+          RUNNER_TEMP_DIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+
+          SOURCE_DIR="$RUNNER_TEMP_DIR/amo-source"
+          rm -rf "$SOURCE_DIR"
+          mkdir -p "$SOURCE_DIR/icons"
+
+          cp manifest.json "$SOURCE_DIR/"
+          cp background.js "$SOURCE_DIR/"
+          cp sidebar.html "$SOURCE_DIR/"
+          cp sidebar.css "$SOURCE_DIR/"
+          cp sidebar.js "$SOURCE_DIR/"
+          cp popup.html "$SOURCE_DIR/"
+          cp popup.css "$SOURCE_DIR/"
+          cp popup.js "$SOURCE_DIR/"
+          cp -R icons/. "$SOURCE_DIR/icons/"
+
+      - name: Sign and upload to AMO
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_SIGN_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_SIGN_SECRET }}
+          RUNNER_TEMP_DIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WEB_EXT_API_KEY:-}" ] || [ -z "${WEB_EXT_API_SECRET:-}" ]; then
+            echo "Missing AMO_SIGN_KEY or AMO_SIGN_SECRET GitHub secret." >&2
+            exit 1
+          fi
+
+          npx --yes web-ext sign \
+            --channel listed \
+            --source-dir "$RUNNER_TEMP_DIR/amo-source" \
+            --artifacts-dir "$RUNNER_TEMP_DIR/amo-artifacts" \
+            --amo-metadata "$RUNNER_TEMP_DIR/amo-metadata.json"
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: amo-signed-addon
+          path: ${{ runner.temp }}/amo-artifacts/*
+          if-no-files-found: error
