@@ -22,6 +22,19 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install Node dependencies
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Install Firefox Developer Edition
+        run: |
+          set -euo pipefail
+          curl -L "https://download.mozilla.org/?product=firefox-devedition-latest-ssl&os=linux64&lang=en-US" -o /tmp/firefox-devedition.tar.bz2
+          mkdir -p "$HOME/firefox-devedition"
+          tar -xjf /tmp/firefox-devedition.tar.bz2 -C "$HOME/firefox-devedition" --strip-components=1
+          echo "FIREFOX_BIN=$HOME/firefox-devedition/firefox" >> "$GITHUB_ENV"
+
       - name: Run release tooling tests
         run: |
           set -euo pipefail
@@ -31,6 +44,11 @@ jobs:
         run: |
           set -euo pipefail
           npm run check:js
+
+      - name: Run Firefox E2E smoke test
+        run: |
+          set -euo pipefail
+          npm run test:e2e
 
       - name: Verify tag version and build AMO metadata
         env:
@@ -60,17 +78,10 @@ jobs:
 
           SOURCE_DIR="$RUNNER_TEMP_DIR/amo-source"
           rm -rf "$SOURCE_DIR"
-          mkdir -p "$SOURCE_DIR/icons"
+          mkdir -p "$SOURCE_DIR/src"
 
           cp manifest.json "$SOURCE_DIR/"
-          cp background.js "$SOURCE_DIR/"
-          cp sidebar.html "$SOURCE_DIR/"
-          cp sidebar.css "$SOURCE_DIR/"
-          cp sidebar.js "$SOURCE_DIR/"
-          cp popup.html "$SOURCE_DIR/"
-          cp popup.css "$SOURCE_DIR/"
-          cp popup.js "$SOURCE_DIR/"
-          cp -R icons/. "$SOURCE_DIR/icons/"
+          cp -R src/. "$SOURCE_DIR/src/"
 
       - name: Sign and upload to AMO
         env:

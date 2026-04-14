@@ -2,6 +2,21 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+1.2.0 - 2026-04-14
+
+Added
+- Automated AMO release workflow for tagged versions, with release notes extracted from this changelog.
+- Firefox end-to-end smoke test coverage for the packaged extension.
+- Unit tests for shared collection and group logic.
+
+Changed
+- Moved extension runtime files into `src/` while keeping the project builder-free.
+- Extracted shared collection and group helpers into `src/shared.js` for reuse across background and UI code.
+
+Fixed
+- Quick popup no longer shows the Uncategorized bucket.
+- Popup Open Panel button can be hidden when the sidebar is already open for the current window.
+
 1.1.0 - 2026-04-14
 
 Added

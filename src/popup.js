@@ -2,6 +2,7 @@ const errorNode = document.getElementById('popup-error');
 const emptyNode = document.getElementById('popup-empty');
 const sectionsNode = document.getElementById('popup-sections');
 const openPanelButtonNode = document.getElementById('open-panel-button');
+const Shared = globalThis.TabGroupCollectionsShared;
 
 let openChoiceCollectionId = null;
 let lastSnapshot = null;
@@ -28,18 +29,8 @@ function createNode(tagName, className, textContent) {
   return node;
 }
 
-function getCollectionSortValue(collection) {
-  return collection.lastActiveAt || collection.snapshotUpdatedAt || 0;
-}
-
 function compareCollections(left, right) {
-  return (
-    getCollectionSortValue(right) - getCollectionSortValue(left) ||
-    left.name.localeCompare(right.name, undefined, {
-      numeric: true,
-      sensitivity: 'base'
-    })
-  );
+  return Shared.compareCollections(left, right, { sortMode: 'last-active' });
 }
 
 async function getCurrentWindowId() {
@@ -70,6 +61,16 @@ async function openSidebarFromPopup() {
   }
 
   throw new Error('Sidebar API is unavailable.');
+}
+
+async function syncOpenPanelButton(currentWindowId) {
+  if (typeof browser.sidebarAction?.isOpen !== 'function') {
+    openPanelButtonNode.classList.remove('hidden');
+    return;
+  }
+
+  const isOpen = await browser.sidebarAction.isOpen({ windowId: currentWindowId });
+  openPanelButtonNode.classList.toggle('hidden', Boolean(isOpen));
 }
 
 async function handleCollectionClick(collection, currentWindowId) {
@@ -235,6 +236,7 @@ openPanelButtonNode.addEventListener('click', async () => {
 (async () => {
   try {
     const currentWindowId = await getCurrentWindowId();
+    await syncOpenPanelButton(currentWindowId);
     const snapshot = await sendMessage({
       type: 'sidebar:getSnapshot',
       currentWindowId

@@ -2,6 +2,7 @@ const STORAGE_KEY = 'tab-group-collections.state';
 const COLLAPSE_STORAGE_KEY = 'tab-group-collections.sidebar-collapsed';
 const SORT_STORAGE_KEY = 'tab-group-collections.sidebar-sort';
 const NEW_COLLECTION_OPTION = '__new_collection__';
+const Shared = globalThis.TabGroupCollectionsShared;
 const GROUP_COLOR_MAP = {
   blue: '#4c8df6',
   cyan: '#44b8d2',
@@ -13,17 +14,7 @@ const GROUP_COLOR_MAP = {
   red: '#d1605a',
   yellow: '#d3b244'
 };
-const GROUP_COLOR_SEQUENCE = [
-  'blue',
-  'cyan',
-  'green',
-  'orange',
-  'pink',
-  'purple',
-  'red',
-  'yellow',
-  'grey'
-];
+const GROUP_COLOR_SEQUENCE = Shared.GROUP_COLOR_SEQUENCE;
 
 const filterInputNode = document.getElementById('filter-input');
 const filterStateNode = document.getElementById('filter-state');
@@ -166,92 +157,18 @@ function formatRelativeTime(timestamp) {
   return 'just now';
 }
 
-function getCollectionPreview(collection) {
-  return collection.groups
-    .map((group) => group.title)
-    .filter(Boolean)
-    .slice(0, 4)
-    .join(' • ');
-}
-
-function buildSummaryText(snapshot, visibleCollections) {
-  if (!snapshot.totalCollectionCount) {
-    return 'No collections yet.';
-  }
-
-  const totalGroupCount = Number.isFinite(snapshot.totalGroupCount)
-    ? snapshot.totalGroupCount
-    : snapshot.collections.reduce((count, collection) => count + collection.groups.length, 0);
-  const collectionLabel = snapshot.totalCollectionCount === 1 ? 'collection' : 'collections';
-  const groupLabel = totalGroupCount === 1 ? 'group' : 'groups';
-
-  if (visibleCollections === 0) {
-    return `${snapshot.totalCollectionCount} ${collectionLabel}, ${totalGroupCount} ${groupLabel}.`;
-  }
-
-  return `${snapshot.totalCollectionCount} ${collectionLabel}, ${totalGroupCount} ${groupLabel}.`;
-}
-
-function getCollectionSortValue(collection) {
-  return collection.lastActiveAt || collection.snapshotUpdatedAt || 0;
-}
-
 function compareCollections(left, right, sortMode = uiState.sortMode) {
-  if (left.isPinned !== right.isPinned) {
-    return left.isPinned ? -1 : 1;
-  }
-
-  if (sortMode === 'name') {
-    return left.name.localeCompare(right.name, undefined, {
-      numeric: true,
-      sensitivity: 'base'
-    });
-  }
-
-  return (
-    getCollectionSortValue(right) - getCollectionSortValue(left) ||
-    left.name.localeCompare(right.name, undefined, {
-      numeric: true,
-      sensitivity: 'base'
-    })
-  );
-}
-
-function matchesFilter(collection, normalizedFilter) {
-  if (!normalizedFilter) {
-    return true;
-  }
-
-  if (collection.name.toLowerCase().includes(normalizedFilter)) {
-    return true;
-  }
-
-  return collection.groups.some((group) => group.title.toLowerCase().includes(normalizedFilter));
-}
-
-function getVisibleGroups(collection, normalizedFilter) {
-  if (!normalizedFilter) {
-    return collection.groups;
-  }
-
-  return collection.groups.filter((group) => (
-    collection.name.toLowerCase().includes(normalizedFilter) ||
-    group.title.toLowerCase().includes(normalizedFilter)
-  ));
+  return Shared.compareCollections(left, right, {
+    sortMode,
+    placeUncategorizedLast: true
+  });
 }
 
 function getFilteredCollections(snapshot) {
-  const normalizedFilter = uiState.filterText.trim().toLowerCase();
-  const collections = snapshot.collections
-    .filter((collection) => matchesFilter(collection, normalizedFilter))
-    .map((collection) => ({
-      ...collection,
-      visibleGroups: getVisibleGroups(collection, normalizedFilter)
-    }));
-
-  collections.sort((left, right) => compareCollections(left, right));
-
-  return collections;
+  return Shared.getFilteredCollections(snapshot, uiState.filterText, {
+    sortMode: uiState.sortMode,
+    placeUncategorizedLast: true
+  });
 }
 
 function isCollectionCollapsed(collectionId, filterActive) {
@@ -902,7 +819,7 @@ function renderCollection(collection, availableCollections, filterActive) {
 
   content.appendChild(titleBar);
 
-  const preview = getCollectionPreview(collection);
+  const preview = Shared.getCollectionPreview(collection);
   if (preview) {
     content.appendChild(createNode('p', 'collection-preview', preview));
   }
@@ -1184,7 +1101,7 @@ function renderSnapshot(snapshot) {
 
   const visibleCollections = getFilteredCollections(snapshot);
   const filterActive = uiState.filterText.trim().length > 0;
-  statusNode.dataset.summary = buildSummaryText(snapshot, visibleCollections.length);
+  statusNode.dataset.summary = Shared.buildSummaryText(snapshot);
   statusNode.textContent = statusNode.dataset.summary;
   document.body.classList.toggle('has-filter', filterActive);
   filterStateNode.classList.toggle('hidden', !filterActive);

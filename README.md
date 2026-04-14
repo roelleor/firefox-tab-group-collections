@@ -12,10 +12,11 @@ Firefox WebExtension that adds a collection layer on top of native Firefox tab g
 
 ## Project Files
 
-- `background.js`: collection state, tab-group sync, open/move/delete actions
-- `sidebar.html`, `sidebar.css`, `sidebar.js`: main management UI
-- `popup.html`, `popup.css`, `popup.js`: quick-open popup
-- `icons/`: extension icon assets
+- `src/background.js`: collection state, tab-group sync, open/move/delete actions
+- `src/sidebar.html`, `src/sidebar.css`, `src/sidebar.js`: main management UI
+- `src/popup.html`, `src/popup.css`, `src/popup.js`: quick-open popup
+- `src/shared.js`: shared collection/group logic used by background and UI
+- `src/icons/`: extension icon assets
 - `build.sh`: packages the extension into `dist/tab-group-collections.zip`
 
 ## Development

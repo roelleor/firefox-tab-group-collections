@@ -26,6 +26,10 @@ body {
   background: var(--bg);
 }
 
+.hidden {
+  display: none !important;
+}
+
 .popup {
   padding: 10px;
 }
@@ -95,11 +99,6 @@ h1 {
 
 .popup-error {
   color: #8b2e2e;
-}
-
-.popup-error.hidden,
-.popup-empty.hidden {
-  display: none;
 }
 
 .popup-sections {

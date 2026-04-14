@@ -1,11 +1,11 @@
 {
   "manifest_version": 2,
   "name": "Tab Group Collections",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Add collection-level organization on top of native Firefox tab groups.",
   "icons": {
-    "48": "icons/tab-group-collections.svg",
-    "96": "icons/tab-group-collections.svg"
+    "48": "src/icons/tab-group-collections.svg",
+    "96": "src/icons/tab-group-collections.svg"
   },
   "permissions": [
     "tabs",
@@ -14,16 +14,16 @@
     "tabGroups"
   ],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["src/shared.js", "src/background.js"]
   },
   "browser_action": {
     "default_title": "Tab Group Collections",
-    "default_icon": "icons/tab-group-collections.svg",
-    "default_popup": "popup.html"
+    "default_icon": "src/icons/tab-group-collections.svg",
+    "default_popup": "src/popup.html"
   },
   "sidebar_action": {
     "default_title": "Tab Group Collections",
-    "default_panel": "sidebar.html"
+    "default_panel": "src/sidebar.html"
   },
   "browser_specific_settings": {
     "gecko": {

@@ -3,21 +3,24 @@ const TAB_MEMBERSHIP_KEY = 'tab-group-collections.membership';
 const NONE_GROUP_ID = browser.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
 const SYNC_DELAY_MS = 180;
 const MAX_BADGE_COUNT = 99;
-const DEFAULT_COLLECTION_NAME = 'Untitled collection';
-const DEFAULT_GROUP_COLOR = 'grey';
-const UNCATEGORIZED_COLLECTION_ID = 'collection-uncategorized';
-const UNCATEGORIZED_COLLECTION_NAME = 'Uncategorized';
-const GROUP_COLOR_SEQUENCE = [
-  'blue',
-  'cyan',
-  'green',
-  'orange',
-  'pink',
-  'purple',
-  'red',
-  'yellow',
-  'grey'
-];
+const {
+  UNCATEGORIZED_COLLECTION_ID,
+  UNCATEGORIZED_COLLECTION_NAME,
+  normalizeStoredGroupTitle,
+  getDisplayGroupTitle,
+  getCollectionName,
+  isUncategorizedCollectionId,
+  getRequestedCollectionName,
+  getGroupColor,
+  getRequestedGroupColor,
+  pickNextGroupColor,
+  getSnapshotUrl,
+  getRestorableUrl,
+  cloneSnapshotGroup,
+  insertSnapshotGroup,
+  getSnapshotGroupTabCount,
+  getMissingSnapshotGroups,
+} = globalThis.TabGroupCollectionsShared;
 
 let syncTimerId = null;
 let operationQueue = Promise.resolve();
@@ -69,82 +72,6 @@ function nextCollectionName(state) {
   const name = `New collection (${state.nextCollectionNumber})`;
   state.nextCollectionNumber += 1;
   return name;
-}
-
-function normalizeStoredGroupTitle(title) {
-  return typeof title === 'string' ? title.trim() : '';
-}
-
-function getDisplayGroupTitle(title) {
-  return normalizeStoredGroupTitle(title) || 'Untitled group';
-}
-
-function getCollectionName(name) {
-  const trimmed = typeof name === 'string' ? name.trim() : '';
-  return trimmed || DEFAULT_COLLECTION_NAME;
-}
-
-function isUncategorizedCollectionId(collectionId) {
-  return collectionId === UNCATEGORIZED_COLLECTION_ID;
-}
-
-function getRequestedCollectionName(name) {
-  if (name === undefined || name === null) {
-    return null;
-  }
-
-  const trimmed = typeof name === 'string' ? name.trim() : '';
-  if (!trimmed) {
-    throw new Error('Collection names cannot be empty.');
-  }
-
-  return trimmed;
-}
-
-function getGroupColor(color) {
-  return typeof color === 'string' && GROUP_COLOR_SEQUENCE.includes(color)
-    ? color
-    : DEFAULT_GROUP_COLOR;
-}
-
-function getRequestedGroupColor(color) {
-  const normalized = typeof color === 'string' ? color.trim() : '';
-  if (!GROUP_COLOR_SEQUENCE.includes(normalized)) {
-    throw new Error('Unsupported tab group color.');
-  }
-
-  return normalized;
-}
-
-function pickNextGroupColor(groups) {
-  const usedColors = new Set(groups.map((group) => getGroupColor(group.color)));
-  const unusedColor = GROUP_COLOR_SEQUENCE.find((color) => !usedColors.has(color));
-  if (unusedColor) {
-    return unusedColor;
-  }
-
-  return GROUP_COLOR_SEQUENCE[groups.length % GROUP_COLOR_SEQUENCE.length];
-}
-
-function getSnapshotUrl(url) {
-  return typeof url === 'string' ? url : '';
-}
-
-function getRestorableUrl(url) {
-  const trimmed = typeof url === 'string' ? url.trim() : '';
-
-  if (!trimmed) {
-    return 'about:blank';
-  }
-
-  if (
-    /^(javascript|data|file|chrome|resource|view-source):/i.test(trimmed) ||
-    /^about:(?!blank$)/i.test(trimmed)
-  ) {
-    return 'about:blank';
-  }
-
-  return trimmed;
 }
 
 function sortTabs(tabs) {
@@ -538,18 +465,6 @@ function sameSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function cloneSnapshotGroup(group) {
-  return {
-    id: group.id,
-    title: normalizeStoredGroupTitle(group.title),
-    color: getGroupColor(group.color),
-    collapsed: Boolean(group.collapsed),
-    tabs: group.tabs.map((tab) => ({
-      url: getSnapshotUrl(tab.url)
-    }))
-  };
-}
-
 function setCollectionSnapshot(collection, groups) {
   const now = Date.now();
   collection.snapshot = buildSnapshotFromGroups(groups);
@@ -572,26 +487,6 @@ function removeSnapshotGroup(snapshot, snapshotGroupId) {
     removedGroup,
     groups
   };
-}
-
-function insertSnapshotGroup(groups, snapshotGroup, targetSnapshotGroupId, position) {
-  const nextGroups = groups.map((group) => cloneSnapshotGroup(group));
-  const normalizedGroup = cloneSnapshotGroup(snapshotGroup);
-
-  if (!targetSnapshotGroupId) {
-    nextGroups.push(normalizedGroup);
-    return nextGroups;
-  }
-
-  const targetIndex = nextGroups.findIndex((group) => group.id === targetSnapshotGroupId);
-  if (targetIndex === -1) {
-    nextGroups.push(normalizedGroup);
-    return nextGroups;
-  }
-
-  const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
-  nextGroups.splice(insertIndex, 0, normalizedGroup);
-  return nextGroups;
 }
 
 async function updateLastFocusedCollection(state, assignedMembershipByTabId) {
@@ -908,15 +803,6 @@ function pickCollectionFocusTarget(liveEntries) {
     ));
 
   return withLastAccessed[0] || candidates.find(({ tab }) => tab.active) || candidates[0];
-}
-
-function getSnapshotGroupTabCount(snapshotGroup) {
-  return Math.max(snapshotGroup.tabs.length, 1);
-}
-
-function getMissingSnapshotGroups(collection, liveEntries) {
-  const liveGroupKeys = new Set(liveEntries.map((entry) => entry.membership.groupKey));
-  return collection.snapshot.groups.filter((group) => !liveGroupKeys.has(group.id));
 }
 
 function getAppendPlacementForCollection(liveEntries, currentWindowId) {

@@ -13,14 +13,7 @@ cd "$ROOT_DIR"
 
 zip -r -FS "$DIST_DIR/$PACKAGE_NAME" \
   manifest.json \
-  background.js \
-  sidebar.html \
-  sidebar.css \
-  sidebar.js \
-  popup.html \
-  popup.css \
-  popup.js \
-  icons \
+  src \
   -x '*.DS_Store' \
   -x '__MACOSX/*' \
   -x '*/._*'
