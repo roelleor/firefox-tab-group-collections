@@ -5,6 +5,12 @@ on:
     tags:
       - '*.*.*'
   workflow_dispatch:
+    inputs:
+      release_ref:
+        description: 'Git ref to build and publish (for example 1.2.0, main, or a commit SHA)'
+        required: true
+        default: 'main'
+        type: string
 
 permissions:
   contents: read
@@ -15,12 +21,15 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
+          package-manager-cache: false
 
       - name: Install Node dependencies
         run: |
@@ -30,9 +39,9 @@ jobs:
       - name: Install Firefox Developer Edition
         run: |
           set -euo pipefail
-          curl -L "https://download.mozilla.org/?product=firefox-devedition-latest-ssl&os=linux64&lang=en-US" -o /tmp/firefox-devedition.tar.bz2
+          curl -L "https://download.mozilla.org/?product=firefox-devedition-latest-ssl&os=linux64&lang=en-US" -o /tmp/firefox-devedition.tar.xz
           mkdir -p "$HOME/firefox-devedition"
-          tar -xjf /tmp/firefox-devedition.tar.bz2 -C "$HOME/firefox-devedition" --strip-components=1
+          tar -xJf /tmp/firefox-devedition.tar.xz -C "$HOME/firefox-devedition" --strip-components=1
           echo "FIREFOX_BIN=$HOME/firefox-devedition/firefox" >> "$GITHUB_ENV"
 
       - name: Run release tooling tests
@@ -52,15 +61,16 @@ jobs:
 
       - name: Verify tag version and build AMO metadata
         env:
+          EVENT_NAME: ${{ github.event_name }}
           TAG_NAME: ${{ github.ref_name }}
           RUNNER_TEMP_DIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
 
-          VERSION="${TAG_NAME#v}"
           MANIFEST_VERSION="$(node -p "require('./manifest.json').version")"
+          VERSION="$MANIFEST_VERSION"
 
-          if [ "$VERSION" != "$MANIFEST_VERSION" ]; then
+          if [ "$EVENT_NAME" = "push" ] && [ "${TAG_NAME#v}" != "$MANIFEST_VERSION" ]; then
             echo "Tag version ($VERSION) does not match manifest version ($MANIFEST_VERSION)." >&2
             exit 1
           fi
@@ -103,7 +113,7 @@ jobs:
             --amo-metadata "$RUNNER_TEMP_DIR/amo-metadata.json"
 
       - name: Upload signed artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: amo-signed-addon
           path: ${{ runner.temp }}/amo-artifacts/*
