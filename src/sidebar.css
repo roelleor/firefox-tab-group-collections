@@ -1,7 +1,7 @@
 :root {
-  color: #1f2328;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
+  --text: #1f2328;
   --bg: #f7f7f8;
   --card: #ffffff;
   --card-muted: #fbfbfc;
@@ -26,6 +26,7 @@ body {
 
 body {
   background: var(--bg);
+  color: var(--text);
 }
 
 .app {
@@ -52,6 +53,7 @@ body {
 
 h1 {
   margin: 0;
+  color: var(--text);
   font-size: 22px;
   font-weight: 600;
   line-height: 1.15;
@@ -130,6 +132,13 @@ h1 {
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
+}
+
+.link-button:hover,
+.link-button:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  outline: none;
 }
 
 .control {
@@ -222,13 +231,20 @@ body.has-filter .filter-control input {
   padding: 14px 14px 12px;
 }
 
+.collection-header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .toggle-button,
 .collection-title-button,
 .action-button,
 .group-button,
 .drag-handle,
 .move-button,
-.menu-button {
+.menu-button,
+.header-icon-button {
   appearance: none;
   border: 0;
   background: transparent;
@@ -241,7 +257,8 @@ body.has-filter .filter-control input {
 .action-button,
 .drag-handle,
 .move-button,
-.menu-button {
+.menu-button,
+.header-icon-button {
   cursor: pointer;
 }
 
@@ -255,6 +272,36 @@ body.has-filter .filter-control input {
   font-size: 14px;
   font-weight: 600;
   line-height: 1;
+}
+
+.icon-svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.header-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 6px;
+}
+
+.header-icon-button:hover,
+.header-icon-button:focus-visible {
+  color: var(--accent);
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.pin-toggle-button.is-active {
+  color: var(--accent);
 }
 
 .collection-title-bar {
@@ -346,6 +393,19 @@ body.has-filter .filter-control input {
   cursor: pointer;
 }
 
+.inline-icon-button:hover,
+.inline-icon-button:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+
+.inline-icon-button .icon-svg,
+.toggle-button .icon-svg,
+.header-icon-button .icon-svg {
+  width: 16px;
+  height: 16px;
+}
+
 .collection-actions {
   display: flex;
   flex-wrap: wrap;
@@ -365,6 +425,17 @@ body.has-filter .filter-control input {
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.action-button:hover,
+.action-button:focus-visible,
+.menu-button:hover,
+.menu-button:focus-visible,
+.move-button:hover,
+.move-button:focus-visible {
+  border-color: var(--border-strong);
+  background: #fff;
+  outline: none;
 }
 
 .menu-button {
@@ -464,6 +535,22 @@ body.has-filter .filter-control input {
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.group-dot-button:hover,
+.group-dot-button:focus-visible,
+.drag-handle:hover,
+.drag-handle:focus-visible,
+.toggle-button:hover,
+.toggle-button:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+
+.drag-handle:hover,
+.drag-handle:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--card-muted);
 }
 
 .group-button:hover .group-title,
@@ -674,4 +761,71 @@ body.is-dragging .drag-handle {
   .group-main {
     grid-template-columns: 1fr;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --text: #eaedf1;
+  --bg: #171a1f;
+  --card: #22262d;
+  --card-muted: #2a2f37;
+  --border: #3b434d;
+  --border-strong: #5b7067;
+  --muted: #b3bac3;
+  --accent: #b8c9c2;
+  --accent-soft: rgba(184, 201, 194, 0.12);
+  --danger: #ffb3b3;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] h1,
+:root[data-theme="dark"] .intro,
+:root[data-theme="dark"] .collection-title,
+:root[data-theme="dark"] .group-title,
+:root[data-theme="dark"] .collection-section-title,
+:root[data-theme="dark"] .control span,
+:root[data-theme="dark"] .status,
+:root[data-theme="dark"] .group-meta,
+:root[data-theme="dark"] .empty-state,
+:root[data-theme="dark"] .error-banner {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .control input,
+:root[data-theme="dark"] .control select,
+:root[data-theme="dark"] .move-select,
+:root[data-theme="dark"] .drag-handle,
+:root[data-theme="dark"] .move-button,
+:root[data-theme="dark"] .menu-button,
+:root[data-theme="dark"] .action-button,
+:root[data-theme="dark"] .group-button {
+  background: var(--card-muted);
+  color: inherit;
+}
+
+:root[data-theme="dark"] .action-button:hover,
+:root[data-theme="dark"] .action-button:focus-visible,
+:root[data-theme="dark"] .menu-button:hover,
+:root[data-theme="dark"] .menu-button:focus-visible,
+:root[data-theme="dark"] .move-button:hover,
+:root[data-theme="dark"] .move-button:focus-visible,
+:root[data-theme="dark"] .drag-handle:hover,
+:root[data-theme="dark"] .drag-handle:focus-visible {
+  background: var(--card);
+}
+
+:root[data-theme="dark"] .control input,
+:root[data-theme="dark"] .control select,
+:root[data-theme="dark"] .move-select {
+  border-color: var(--border);
+}
+
+:root[data-theme="dark"] .group-delete-button,
+:root[data-theme="dark"] .error-banner {
+  background: rgba(139, 46, 46, 0.18);
+}
+
+:root[data-theme="dark"] .group-color-option-swatch {
+  border-color: rgba(234, 237, 241, 0.24);
 }

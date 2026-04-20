@@ -566,13 +566,30 @@ async function syncCollections() {
   const membershipClears = [];
 
   for (const entries of runtime.groupsByWindow.values()) {
-    for (const entry of entries) {
-      entry.membership = entry.existingMembership;
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      const existingMembership = entry.existingMembership;
 
-      if (entry.membership && !state.collections[entry.membership.collectionId]) {
-        ensureCollectionRecord(state, entry.membership.collectionId);
-        stateChanged = true;
+      if (!existingMembership) {
+        entry.membership = null;
+        continue;
       }
+
+      if (state.collections[existingMembership.collectionId]) {
+        entry.membership = existingMembership;
+        continue;
+      }
+
+      const siblingCollectionId = findSiblingCollectionId(entries, index);
+      if (siblingCollectionId) {
+        entry.membership = {
+          groupKey: existingMembership.groupKey,
+          collectionId: siblingCollectionId
+        };
+        continue;
+      }
+
+      entry.membership = null;
     }
 
     // New groups inherit the nearest sibling collection before we ever
@@ -585,7 +602,8 @@ async function syncCollections() {
 
       let collectionId = findSiblingCollectionId(entries, index);
       if (!collectionId) {
-        collectionId = createCollectionRecord(state).id;
+        const fallbackCollectionName = normalizeStoredGroupTitle(entry.group.title) || null;
+        collectionId = createCollectionRecord(state, createId('collection'), fallbackCollectionName).id;
         stateChanged = true;
       }
 
@@ -777,6 +795,23 @@ function buildSidebarSnapshot(syncedState, currentWindowId) {
     totalLiveGroupCount: collectionsForDisplay.reduce((count, collection) => count + collection.liveGroupCount, 0),
     totalGroupCount: collectionsForDisplay.reduce((count, collection) => count + collection.groups.length, 0)
   };
+}
+
+async function getUiThemeMode() {
+  if (!browser.browserSettings?.overrideContentColorScheme?.get) {
+    return { mode: null };
+  }
+
+  try {
+    const result = await browser.browserSettings.overrideContentColorScheme.get({});
+    return {
+      mode: result?.value || null
+    };
+  } catch (error) {
+    return {
+      mode: null
+    };
+  }
 }
 
 function pickCollectionFocusTarget(liveEntries) {
@@ -1784,6 +1819,12 @@ browser.runtime.onMessage.addListener((message) => {
     return undefined;
   }
 
+  if (message.type === 'ui:getThemeMode') {
+    return getUiThemeMode().catch((error) => ({
+      error: error.message
+    }));
+  }
+
   if (message.type === 'sidebar:getSnapshot') {
     return getSidebarSnapshot(message.currentWindowId).catch((error) => ({
       error: error.message
@@ -1969,6 +2010,12 @@ if (hasRequiredApis()) {
     }
   });
   browser.windows.onFocusChanged.addListener(scheduleSync);
+}
+
+if (browser.browserSettings?.overrideContentColorScheme?.onChange?.addListener) {
+  browser.browserSettings.overrideContentColorScheme.onChange.addListener(() => {
+    browser.runtime.sendMessage({ type: 'ui:themeModeChanged' }).catch(() => {});
+  });
 }
 
 initialize().catch(console.error);

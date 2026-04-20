@@ -11,7 +11,8 @@
     "tabs",
     "storage",
     "sessions",
-    "tabGroups"
+    "tabGroups",
+    "browserSettings"
   ],
   "background": {
     "scripts": ["src/shared.js", "src/background.js"]

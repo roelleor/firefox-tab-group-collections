@@ -1,7 +1,7 @@
 :root {
-  color: #1f2328;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
+  --text: #1f2328;
   --bg: #f7f7f8;
   --card: #ffffff;
   --card-muted: #fbfbfc;
@@ -24,6 +24,7 @@ body {
 
 body {
   background: var(--bg);
+  color: var(--text);
 }
 
 .hidden {
@@ -58,6 +59,7 @@ body {
 
 h1 {
   margin: 0;
+  color: var(--text);
   font-size: 18px;
   line-height: 1.2;
   font-weight: 600;
@@ -83,6 +85,13 @@ h1 {
   color: var(--accent);
   font-size: 12px;
   font-weight: 600;
+}
+
+.panel-button:hover,
+.panel-button:focus-visible {
+  border-color: var(--border-strong);
+  background: #fff;
+  outline: none;
 }
 
 .popup-error,
@@ -151,12 +160,18 @@ h1 {
 }
 
 .collection-link-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   margin-left: 10px;
   color: var(--accent);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
+}
+
+.icon-svg {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .collection-link:hover,
@@ -207,4 +222,51 @@ h1 {
   border-color: var(--border-strong);
   background: var(--card-muted);
   outline: none;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --text: #eaedf1;
+  --bg: #171a1f;
+  --card: #22262d;
+  --card-muted: #2a2f37;
+  --border: #3b434d;
+  --border-strong: #5b7067;
+  --accent: #b8c9c2;
+  --muted: #b3bac3;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] h1,
+:root[data-theme="dark"] .popup-header,
+:root[data-theme="dark"] .popup-section-title,
+:root[data-theme="dark"] .collection-link-label,
+:root[data-theme="dark"] .popup-empty,
+:root[data-theme="dark"] .popup-error {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .panel-button,
+:root[data-theme="dark"] .collection-link,
+:root[data-theme="dark"] .open-choice-button {
+  background: var(--card-muted);
+  color: inherit;
+}
+
+:root[data-theme="dark"] .panel-button:hover,
+:root[data-theme="dark"] .panel-button:focus-visible,
+:root[data-theme="dark"] .collection-link:hover,
+:root[data-theme="dark"] .collection-link:focus-visible,
+:root[data-theme="dark"] .open-choice-button:hover,
+:root[data-theme="dark"] .open-choice-button:focus-visible {
+  background: var(--card);
+}
+
+:root[data-theme="dark"] .collection-link.current {
+  background: rgba(184, 201, 194, 0.12);
+}
+
+:root[data-theme="dark"] .popup-error {
+  color: #ffb3b3;
 }

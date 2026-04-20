@@ -3,6 +3,7 @@ const emptyNode = document.getElementById('popup-empty');
 const sectionsNode = document.getElementById('popup-sections');
 const openPanelButtonNode = document.getElementById('open-panel-button');
 const Shared = globalThis.TabGroupCollectionsShared;
+const UiTheme = globalThis.TabGroupCollectionsUiTheme;
 
 let openChoiceCollectionId = null;
 let lastSnapshot = null;
@@ -29,6 +30,36 @@ function createNode(tagName, className, textContent) {
   return node;
 }
 
+const ICON_PATHS = {
+  chevronRight: [
+    'm9 18 6-6-6-6'
+  ],
+  chevronDown: [
+    'm6 9 6 6 6-6'
+  ]
+};
+
+function createIcon(name, className = 'icon-svg') {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.setAttribute('class', className);
+
+  for (const pathData of ICON_PATHS[name]) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', pathData);
+    svg.appendChild(path);
+  }
+
+  return svg;
+}
+
 function compareCollections(left, right) {
   return Shared.compareCollections(left, right, { sortMode: 'last-active' });
 }
@@ -49,20 +80,6 @@ async function sendMessage(payload) {
   return response;
 }
 
-async function openSidebarFromPopup() {
-  if (typeof browser.sidebarAction?.open === 'function') {
-    await browser.sidebarAction.open();
-    return;
-  }
-
-  if (typeof browser.sidebarAction?.toggle === 'function') {
-    await browser.sidebarAction.toggle();
-    return;
-  }
-
-  throw new Error('Sidebar API is unavailable.');
-}
-
 async function syncOpenPanelButton(currentWindowId) {
   if (typeof browser.sidebarAction?.isOpen !== 'function') {
     openPanelButtonNode.classList.remove('hidden');
@@ -71,6 +88,25 @@ async function syncOpenPanelButton(currentWindowId) {
 
   const isOpen = await browser.sidebarAction.isOpen({ windowId: currentWindowId });
   openPanelButtonNode.classList.toggle('hidden', Boolean(isOpen));
+}
+
+async function waitForSidebarOpen(currentWindowId, timeoutMs = 2500) {
+  if (typeof browser.sidebarAction?.isOpen !== 'function') {
+    return true;
+  }
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const isOpen = await browser.sidebarAction.isOpen({ windowId: currentWindowId });
+    if (isOpen) {
+      return true;
+    }
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 100);
+    });
+  }
+
+  return false;
 }
 
 async function handleCollectionClick(collection, currentWindowId) {
@@ -132,11 +168,9 @@ function renderSection(title, collections, currentWindowId) {
     const label = createNode('span', 'collection-link-label', collection.name);
     button.appendChild(label);
     if (collection.liveGroupCount === 0 && collection.snapshotGroupCount > 0) {
-      button.appendChild(createNode(
-        'span',
-        'collection-link-chevron',
-        openChoiceCollectionId === collection.id ? '⌄' : '›'
-      ));
+      const chevron = createNode('span', 'collection-link-chevron');
+      chevron.appendChild(createIcon(openChoiceCollectionId === collection.id ? 'chevronDown' : 'chevronRight'));
+      button.appendChild(chevron);
     }
     button.addEventListener('click', async () => {
       try {
@@ -223,13 +257,53 @@ function renderSnapshot(snapshot, currentWindowId) {
   }
 }
 
-openPanelButtonNode.addEventListener('click', async () => {
+openPanelButtonNode.addEventListener('click', () => {
+  clearError();
+
+  const openFn = typeof browser.sidebarAction?.open === 'function'
+    ? browser.sidebarAction.open.bind(browser.sidebarAction)
+    : null;
+  const toggleFn = typeof browser.sidebarAction?.toggle === 'function'
+    ? browser.sidebarAction.toggle.bind(browser.sidebarAction)
+    : null;
+
+  if (!openFn && !toggleFn) {
+    showError('Sidebar API is unavailable.');
+    return;
+  }
+
   try {
-    clearError();
-    await openSidebarFromPopup();
-    window.close();
+    const currentWindowId = lastWindowId;
+
+    if (openFn) {
+      openFn().catch((error) => {
+        if (!toggleFn) {
+          console.error('Unable to open sidebar.', error);
+          return;
+        }
+
+        toggleFn().catch((toggleError) => {
+          console.error('Unable to toggle sidebar after open() failed.', toggleError);
+        });
+      });
+    } else {
+      toggleFn().catch((error) => {
+        console.error('Unable to toggle sidebar.', error);
+      });
+    }
+
+    Promise.resolve()
+      .then(() => waitForSidebarOpen(currentWindowId))
+      .then((didOpen) => {
+        if (didOpen) {
+          window.close();
+        }
+      })
+      .catch((error) => {
+        console.error('Unable to confirm sidebar open state.', error);
+      });
   } catch (error) {
-    showError(error.message || 'Unable to open panel.');
+    showError(error?.message || 'Unable to open panel.');
   }
 });
 
@@ -246,3 +320,5 @@ openPanelButtonNode.addEventListener('click', async () => {
     showError(error.message || 'Unable to load collections.');
   }
 })();
+
+UiTheme.start();

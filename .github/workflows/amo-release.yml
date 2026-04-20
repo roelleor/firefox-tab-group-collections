@@ -106,11 +106,27 @@ jobs:
             exit 1
           fi
 
+          LOG_FILE="$RUNNER_TEMP_DIR/web-ext-sign.log"
+          set +e
           npx --yes web-ext sign \
             --channel listed \
             --source-dir "$RUNNER_TEMP_DIR/amo-source" \
             --artifacts-dir "$RUNNER_TEMP_DIR/amo-artifacts" \
-            --amo-metadata "$RUNNER_TEMP_DIR/amo-metadata.json"
+            --amo-metadata "$RUNNER_TEMP_DIR/amo-metadata.json" \
+            2>&1 | tee "$LOG_FILE"
+          SIGN_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$SIGN_EXIT_CODE" -eq 0 ]; then
+            exit 0
+          fi
+
+          if grep -q "Approval: timeout exceeded" "$LOG_FILE"; then
+            echo "AMO submission completed, but approval is still pending review."
+            exit 0
+          fi
+
+          exit "$SIGN_EXIT_CODE"
 
       - name: Upload signed artifact
         uses: actions/upload-artifact@v6

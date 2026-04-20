@@ -3,6 +3,7 @@ const COLLAPSE_STORAGE_KEY = 'tab-group-collections.sidebar-collapsed';
 const SORT_STORAGE_KEY = 'tab-group-collections.sidebar-sort';
 const NEW_COLLECTION_OPTION = '__new_collection__';
 const Shared = globalThis.TabGroupCollectionsShared;
+const UiTheme = globalThis.TabGroupCollectionsUiTheme;
 const GROUP_COLOR_MAP = {
   blue: '#4c8df6',
   cyan: '#44b8d2',
@@ -105,6 +106,50 @@ function createNode(tagName, className, textContent) {
     node.textContent = textContent;
   }
   return node;
+}
+
+const ICON_PATHS = {
+  pencil: [
+    'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z',
+    'm15 5 4 4'
+  ],
+  chevronRight: [
+    'm9 18 6-6-6-6'
+  ],
+  chevronDown: [
+    'm6 9 6 6 6-6'
+  ],
+  pin: [
+    'M12 17v5',
+    'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z'
+  ],
+  pinOff: [
+    'M12 17v5',
+    'M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89',
+    'm2 2 20 20',
+    'M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11'
+  ]
+};
+
+function createIcon(name, className = 'icon-svg') {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.setAttribute('class', className);
+
+  for (const pathData of ICON_PATHS[name]) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', pathData);
+    svg.appendChild(path);
+  }
+
+  return svg;
 }
 
 async function ensureCurrentWindowId() {
@@ -559,9 +604,11 @@ function createGroupContent(group) {
   groupButton.appendChild(titleRow);
   titleBar.appendChild(groupButton);
 
-  const renameButton = createNode('button', 'inline-icon-button', '✎');
+  const renameButton = createNode('button', 'inline-icon-button');
   renameButton.type = 'button';
   renameButton.title = `Rename "${group.title}"`;
+  renameButton.setAttribute('aria-label', `Rename "${group.title}"`);
+  renameButton.appendChild(createIcon('pencil'));
   renameButton.addEventListener('click', async () => {
     const nextTitle = window.prompt('Rename tab group', group.title);
     if (nextTitle === null) {
@@ -780,9 +827,11 @@ function renderCollection(collection, availableCollections, filterActive) {
   titleBar.appendChild(titleButton);
 
   if (!collapsed) {
-    const renameCollectionButton = createNode('button', 'inline-icon-button', '✎');
+    const renameCollectionButton = createNode('button', 'inline-icon-button');
     renameCollectionButton.type = 'button';
     renameCollectionButton.title = `Rename "${collection.name}"`;
+    renameCollectionButton.setAttribute('aria-label', `Rename "${collection.name}"`);
+    renameCollectionButton.appendChild(createIcon('pencil'));
     renameCollectionButton.addEventListener('click', async (event) => {
       event.stopPropagation();
       const nextName = window.prompt('Rename collection', collection.name);
@@ -806,17 +855,6 @@ function renderCollection(collection, availableCollections, filterActive) {
     }
   }
 
-  const badgeRow = createNode('div', 'collection-badges');
-  if (collection.isPinned) {
-    badgeRow.appendChild(createNode('span', 'badge', 'Pinned'));
-  }
-  if (collection.isCurrent) {
-    badgeRow.appendChild(createNode('span', 'badge current', 'Current'));
-  }
-  if (badgeRow.childElementCount) {
-    titleBar.appendChild(badgeRow);
-  }
-
   content.appendChild(titleBar);
 
   const preview = Shared.getCollectionPreview(collection);
@@ -826,14 +864,41 @@ function renderCollection(collection, availableCollections, filterActive) {
 
   header.appendChild(content);
 
-  const toggleButton = createNode('button', 'toggle-button', collapsed ? '›' : '⌄');
+  const headerControls = createNode('div', 'collection-header-controls');
+
+  if (!collection.isUncategorized) {
+    const pinButton = createNode('button', 'header-icon-button pin-toggle-button');
+    pinButton.type = 'button';
+    pinButton.title = collection.isPinned ? 'Unpin collection' : 'Pin collection';
+    pinButton.setAttribute('aria-label', collection.isPinned ? 'Unpin collection' : 'Pin collection');
+    pinButton.classList.toggle('is-active', collection.isPinned);
+    pinButton.appendChild(createIcon(collection.isPinned ? 'pin' : 'pinOff'));
+    pinButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await runAction(collection.isPinned ? 'Unpinning collection…' : 'Pinning collection…', async () => {
+        const snapshot = await sendMessage({
+          type: 'sidebar:setCollectionPinned',
+          currentWindowId,
+          collectionId: collection.id,
+          pinned: !collection.isPinned
+        });
+        renderSnapshot(snapshot);
+      });
+    });
+    headerControls.appendChild(pinButton);
+  }
+
+  const toggleButton = createNode('button', 'toggle-button');
   toggleButton.type = 'button';
   toggleButton.title = collapsed ? 'Expand collection' : 'Collapse collection';
+  toggleButton.setAttribute('aria-label', collapsed ? 'Expand collection' : 'Collapse collection');
+  toggleButton.appendChild(createIcon(collapsed ? 'chevronRight' : 'chevronDown'));
   toggleButton.addEventListener('click', (event) => {
     event.stopPropagation();
     toggleCollectionCollapsed(collection.id);
   });
-  header.appendChild(toggleButton);
+  headerControls.appendChild(toggleButton);
+  header.appendChild(headerControls);
   card.appendChild(header);
 
   const body = createNode('div', 'collection-body');
@@ -932,21 +997,6 @@ function renderCollection(collection, availableCollections, filterActive) {
       renderSnapshot(lastSnapshot);
     });
     actions.appendChild(deleteButton);
-
-    const pinButton = createNode('button', 'action-button', collection.isPinned ? 'Unpin' : 'Pin');
-    pinButton.type = 'button';
-    pinButton.addEventListener('click', async () => {
-      await runAction(collection.isPinned ? 'Unpinning collection…' : 'Pinning collection…', async () => {
-        const snapshot = await sendMessage({
-          type: 'sidebar:setCollectionPinned',
-          currentWindowId,
-          collectionId: collection.id,
-          pinned: !collection.isPinned
-        });
-        renderSnapshot(snapshot);
-      });
-    });
-    actions.appendChild(pinButton);
   }
 
   body.appendChild(actions);
@@ -1245,6 +1295,8 @@ refreshSnapshot().catch((error) => {
   showError(error.message || 'Unable to load tab group collections.');
 });
 
+UiTheme.start();
+
 filterInputNode.addEventListener('input', () => {
   uiState.filterText = filterInputNode.value;
   renderSnapshot(lastSnapshot);
@@ -1271,10 +1323,17 @@ sortSelectNode.addEventListener('change', () => {
 });
 
 createCollectionButtonNode.addEventListener('click', async () => {
+  const requestedName = window.prompt('New collection name', '');
+  if (requestedName === null) {
+    return;
+  }
+
   await runAction('Creating collection…', async () => {
+    const resolvedWindowId = await ensureCurrentWindowId();
     const snapshot = await sendMessage({
       type: 'sidebar:createCollection',
-      currentWindowId
+      currentWindowId: resolvedWindowId,
+      name: requestedName
     });
     openCollectionMenuId = null;
     openDeleteMenuId = null;
