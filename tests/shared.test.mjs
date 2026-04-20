@@ -69,6 +69,27 @@ test('insertSnapshotGroup inserts before, after, or appends without mutating inp
   );
 });
 
+test('mergeSnapshotGroupsWithLiveOrder keeps saved groups in their gaps while following live browser order', () => {
+  const existing = [
+    { id: 'saved-before', title: 'Saved Before', color: 'blue', collapsed: false, tabs: [] },
+    { id: 'live-a', title: 'Live A', color: 'green', collapsed: false, tabs: [] },
+    { id: 'saved-middle', title: 'Saved Middle', color: 'red', collapsed: false, tabs: [] },
+    { id: 'live-b', title: 'Live B', color: 'yellow', collapsed: false, tabs: [] },
+    { id: 'saved-after', title: 'Saved After', color: 'purple', collapsed: false, tabs: [] },
+  ];
+
+  const live = [
+    { id: 'live-b', title: 'Live B', color: 'yellow', collapsed: false, tabs: [] },
+    { id: 'live-a', title: 'Live A', color: 'green', collapsed: false, tabs: [] },
+    { id: 'live-c', title: 'Live C', color: 'cyan', collapsed: false, tabs: [] },
+  ];
+
+  assert.deepEqual(
+    Shared.mergeSnapshotGroupsWithLiveOrder(existing, live).map((group) => group.id),
+    ['saved-before', 'live-b', 'saved-middle', 'live-a', 'saved-after', 'live-c'],
+  );
+});
+
 test('getMissingSnapshotGroups returns only saved groups that are not live', () => {
   const collection = {
     snapshot: {

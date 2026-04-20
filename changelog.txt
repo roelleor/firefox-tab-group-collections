@@ -2,6 +2,12 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+1.4.1 - 2026-04-20
+
+Fixed
+- Collection group order now follows the actual browser tab-group order more reliably.
+- Live groups can now be dragged onto closed groups to place them there directly.
+
 1.4.0 - 2026-04-20
 
 Changed

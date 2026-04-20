@@ -504,7 +504,6 @@ function attachGroupDropTarget(row, group, collection) {
     }
 
     if (
-      (dragState.kind === 'live' && group.kind !== 'live') ||
       (dragState.kind === 'live' && dragState.groupId === group.runtimeGroupId) ||
       (dragState.kind === 'snapshot' && dragState.snapshotGroupId === group.snapshotGroupId)
     ) {
@@ -524,7 +523,6 @@ function attachGroupDropTarget(row, group, collection) {
     }
 
     if (
-      (dragState.kind === 'live' && group.kind !== 'live') ||
       (dragState.kind === 'live' && dragState.groupId === group.runtimeGroupId) ||
       (dragState.kind === 'snapshot' && dragState.snapshotGroupId === group.snapshotGroupId)
     ) {

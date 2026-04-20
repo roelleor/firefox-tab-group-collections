@@ -124,9 +124,11 @@ jobs:
 
           exit "$SIGN_EXIT_CODE"
 
-      - name: Upload signed artifact
+      - name: Upload AMO submission logs
         uses: actions/upload-artifact@v6
         with:
-          name: amo-signed-addon
-          path: ${{ runner.temp }}/amo-artifacts/*
+          name: amo-submission-logs
+          path: |
+            ${{ runner.temp }}/web-ext-sign.log
+            ${{ runner.temp }}/amo-metadata.json
           if-no-files-found: error

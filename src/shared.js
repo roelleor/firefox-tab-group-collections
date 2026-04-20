@@ -140,6 +140,40 @@
     return nextGroups;
   }
 
+  function mergeSnapshotGroupsWithLiveOrder(existingGroups, liveGroups) {
+    const normalizedExistingGroups = existingGroups.map((group) => cloneSnapshotGroup(group));
+    const normalizedLiveGroups = liveGroups.map((group) => cloneSnapshotGroup(group));
+    const liveGroupsById = new Map(normalizedLiveGroups.map((group) => [group.id, group]));
+    const savedBuckets = [[]];
+
+    for (const existingGroup of normalizedExistingGroups) {
+      if (liveGroupsById.has(existingGroup.id)) {
+        savedBuckets.push([]);
+        continue;
+      }
+
+      savedBuckets[savedBuckets.length - 1].push(existingGroup);
+    }
+
+    const mergedGroups = [...savedBuckets[0]];
+
+    for (let index = 0; index < normalizedLiveGroups.length; index += 1) {
+      mergedGroups.push(normalizedLiveGroups[index]);
+
+      if (index + 1 < savedBuckets.length) {
+        mergedGroups.push(...savedBuckets[index + 1]);
+      }
+    }
+
+    if (normalizedLiveGroups.length + 1 < savedBuckets.length) {
+      for (let index = normalizedLiveGroups.length + 1; index < savedBuckets.length; index += 1) {
+        mergedGroups.push(...savedBuckets[index]);
+      }
+    }
+
+    return mergedGroups;
+  }
+
   function getSnapshotGroupTabCount(snapshotGroup) {
     return Math.max(snapshotGroup.tabs.length, 1);
   }
@@ -255,6 +289,7 @@
     getRestorableUrl,
     cloneSnapshotGroup,
     insertSnapshotGroup,
+    mergeSnapshotGroupsWithLiveOrder,
     getSnapshotGroupTabCount,
     getMissingSnapshotGroups,
     getCollectionSortValue,

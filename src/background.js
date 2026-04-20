@@ -19,6 +19,7 @@ const {
   getRestorableUrl,
   cloneSnapshotGroup,
   insertSnapshotGroup,
+  mergeSnapshotGroupsWithLiveOrder,
   getSnapshotGroupTabCount,
   getMissingSnapshotGroups,
 } = globalThis.TabGroupCollectionsShared;
@@ -478,27 +479,9 @@ function buildCollectionSnapshot(entries) {
 
 function mergeCollectionSnapshot(collection, entries) {
   const liveGroups = entries.map((entry) => buildSnapshotGroupFromEntry(entry));
-  const liveGroupsById = new Map(liveGroups.map((group) => [group.id, group]));
-  const consumedIds = new Set();
-  const mergedGroups = [];
-
-  for (const existingGroup of collection.snapshot.groups) {
-    const matchingLiveGroup = liveGroupsById.get(existingGroup.id);
-    if (matchingLiveGroup) {
-      mergedGroups.push(matchingLiveGroup);
-      consumedIds.add(existingGroup.id);
-    } else {
-      mergedGroups.push(cloneSnapshotGroup(existingGroup));
-    }
-  }
-
-  for (const liveGroup of liveGroups) {
-    if (!consumedIds.has(liveGroup.id)) {
-      mergedGroups.push(liveGroup);
-    }
-  }
-
-  return buildSnapshotFromGroups(mergedGroups);
+  return buildSnapshotFromGroups(
+    mergeSnapshotGroupsWithLiveOrder(collection.snapshot.groups, liveGroups)
+  );
 }
 
 function sameSnapshot(left, right) {
@@ -1132,6 +1115,90 @@ function getGroupPlacement(entry, syncedState, targetCollectionId, targetGroupId
   };
 }
 
+function placeLiveGroupSnapshot(state, entry, targetCollectionId, targetSnapshotGroupId, position) {
+  const sourceCollection = state.collections[entry.membership.collectionId];
+  if (!sourceCollection) {
+    return false;
+  }
+
+  const snapshotGroup = buildSnapshotGroupFromEntry(entry);
+  const { groups: sourceGroups } = removeSnapshotGroup(sourceCollection.snapshot, entry.membership.groupKey);
+
+  if (targetCollectionId === sourceCollection.id) {
+    const targetGroups = insertSnapshotGroup(
+      sourceGroups,
+      snapshotGroup,
+      targetSnapshotGroupId,
+      position
+    );
+    setCollectionSnapshot(sourceCollection, targetGroups);
+    return true;
+  }
+
+  setCollectionSnapshot(sourceCollection, sourceGroups);
+  const targetCollection = ensureCollectionRecord(state, targetCollectionId);
+  const targetGroups = insertSnapshotGroup(
+    targetCollection.snapshot.groups,
+    snapshotGroup,
+    targetSnapshotGroupId,
+    position
+  );
+  setCollectionSnapshot(targetCollection, targetGroups);
+  return true;
+}
+
+function getGroupPlacementForSnapshotTarget(entry, syncedState, state, targetCollectionId) {
+  const targetCollection = state.collections[targetCollectionId];
+  if (!targetCollection) {
+    return getGroupPlacement(entry, syncedState, targetCollectionId, null, 'append');
+  }
+
+  const entriesByCollection = buildEntriesByCollection(syncedState.runtime.groupsByWindow);
+  const liveEntryByGroupKey = new Map();
+
+  for (const entries of entriesByCollection.values()) {
+    for (const candidate of entries) {
+      liveEntryByGroupKey.set(candidate.membership.groupKey, candidate);
+    }
+  }
+
+  liveEntryByGroupKey.set(entry.membership.groupKey, entry);
+
+  const targetLiveGroupKeys = new Set(
+    (entriesByCollection.get(targetCollectionId) || []).map((candidate) => candidate.membership.groupKey)
+  );
+  targetLiveGroupKeys.add(entry.membership.groupKey);
+
+  const orderedLiveGroupKeys = targetCollection.snapshot.groups
+    .map((group) => group.id)
+    .filter((groupKey) => targetLiveGroupKeys.has(groupKey));
+  const entryIndex = orderedLiveGroupKeys.indexOf(entry.membership.groupKey);
+
+  if (entryIndex === -1) {
+    return getGroupPlacement(entry, syncedState, targetCollectionId, null, 'append');
+  }
+
+  for (let index = entryIndex + 1; index < orderedLiveGroupKeys.length; index += 1) {
+    const nextEntry = liveEntryByGroupKey.get(orderedLiveGroupKeys[index]);
+    if (nextEntry && nextEntry.group.id !== entry.group.id) {
+      return getGroupPlacement(entry, syncedState, targetCollectionId, nextEntry.group.id, 'before');
+    }
+  }
+
+  for (let index = entryIndex - 1; index >= 0; index -= 1) {
+    const previousEntry = liveEntryByGroupKey.get(orderedLiveGroupKeys[index]);
+    if (previousEntry && previousEntry.group.id !== entry.group.id) {
+      return getGroupPlacement(entry, syncedState, targetCollectionId, previousEntry.group.id, 'after');
+    }
+  }
+
+  if (entry.membership.collectionId === targetCollectionId) {
+    return null;
+  }
+
+  return getGroupPlacement(entry, syncedState, targetCollectionId, null, 'append');
+}
+
 async function placeGroup(groupId, placement, currentWindowId) {
   if (!hasRequiredApis()) {
     throw new Error('Tab group APIs are unavailable in this Firefox build.');
@@ -1161,15 +1228,32 @@ async function placeGroup(groupId, placement, currentWindowId) {
       stateChanged = true;
     }
 
-    const resolvedPlacement = getGroupPlacement(
-      entry,
-      syncedState,
-      targetCollectionId,
-      placement?.targetGroupId ?? null,
-      placement?.position ?? 'append'
-    );
+    if (placement?.targetSnapshotGroupId) {
+      if (placeLiveGroupSnapshot(
+        state,
+        entry,
+        targetCollectionId,
+        placement.targetSnapshotGroupId,
+        placement?.position ?? 'append'
+      )) {
+        stateChanged = true;
+      }
+    }
+
+    const resolvedPlacement = placement?.targetSnapshotGroupId
+      ? getGroupPlacementForSnapshotTarget(entry, syncedState, state, targetCollectionId)
+      : getGroupPlacement(
+        entry,
+        syncedState,
+        targetCollectionId,
+        placement?.targetGroupId ?? null,
+        placement?.position ?? 'append'
+      );
 
     if (!resolvedPlacement && entry.membership.collectionId === targetCollectionId) {
+      if (stateChanged) {
+        await saveState(state);
+      }
       const refreshedState = await syncCollections();
       return buildSidebarSnapshot(refreshedState, currentWindowId || entry.windowId);
     }
@@ -1188,13 +1272,15 @@ async function placeGroup(groupId, placement, currentWindowId) {
     }
 
     if (entry.membership.collectionId !== targetCollectionId) {
-      const sourceCollection = state.collections[entry.membership.collectionId];
-      if (sourceCollection) {
-        const { groups: sourceGroups } = removeSnapshotGroup(
-          sourceCollection.snapshot,
-          entry.membership.groupKey
-        );
-        setCollectionSnapshot(sourceCollection, sourceGroups);
+      if (!placement?.targetSnapshotGroupId) {
+        const sourceCollection = state.collections[entry.membership.collectionId];
+        if (sourceCollection) {
+          const { groups: sourceGroups } = removeSnapshotGroup(
+            sourceCollection.snapshot,
+            entry.membership.groupKey
+          );
+          setCollectionSnapshot(sourceCollection, sourceGroups);
+        }
       }
 
       const updatedMembership = {
@@ -2169,6 +2255,7 @@ browser.runtime.onMessage.addListener((message) => {
         targetCollectionId: message.targetCollectionId,
         targetCollectionName: message.targetCollectionName,
         targetGroupId: message.targetGroupId,
+        targetSnapshotGroupId: message.targetSnapshotGroupId,
         position: message.position
       }, message.currentWindowId);
 
