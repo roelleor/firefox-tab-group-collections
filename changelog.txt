@@ -2,20 +2,26 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
-1.2.0 - 2026-04-14
+1.3.0 - 2026-04-20
 
 Added
-- Automated AMO release workflow for tagged versions, with release notes extracted from this changelog.
-- Firefox end-to-end smoke test coverage for the packaged extension.
-- Unit tests for shared collection and group logic.
+- Group delete menu with separate "Remove from Collection" and permanent delete actions.
 
 Changed
-- Moved extension runtime files into `src/` while keeping the project builder-free.
-- Extracted shared collection and group helpers into `src/shared.js` for reuse across background and UI code.
+- Sidebar and quick popup now follow Firefox light and dark content appearance.
+- New collections ask for a name immediately instead of being created unnamed first.
+- Popup panel control now toggles between opening and closing the side panel for the current window.
+- Collection actions now switch between Open, Go to, and Close based on whether a collection is closed, partly open, or fully open, and Close only shuts the currently open groups.
+- Refreshed collection and group action icons and hover states for clearer controls.
+- Collection cards now highlight open and partly open state instead of the transient current-tab state.
+
+Fixed
+- Restored or newly reopened groups now join the current window collection context more reliably.
+
+1.2.0 - 2026-04-14
 
 Fixed
 - Quick popup no longer shows the Uncategorized bucket.
-- Popup Open Panel button can be hidden when the sidebar is already open for the current window.
 
 1.1.0 - 2026-04-14
 

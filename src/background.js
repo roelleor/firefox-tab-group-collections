@@ -1181,11 +1181,71 @@ async function focusCollection(collectionId, currentWindowId) {
   });
 }
 
+async function closeCollection(collectionId, currentWindowId) {
+  if (!hasRequiredApis()) {
+    throw new Error('Tab group APIs are unavailable in this Firefox build.');
+  }
+
+  return enqueueOperation(async () => {
+    const syncedState = await syncCollections();
+    const state = syncedState.state;
+    const collection = state.collections[collectionId];
+
+    if (!collection) {
+      throw new Error('Collection not found.');
+    }
+
+    const entriesByCollection = buildEntriesByCollection(syncedState.runtime.groupsByWindow);
+    const liveEntries = entriesByCollection.get(collectionId) || [];
+    const tabIds = liveEntries.flatMap((entry) => entry.tabs.map((tab) => tab.id));
+
+    if (!tabIds.length) {
+      throw new Error('This collection is not currently open.');
+    }
+
+    await browser.tabs.remove(tabIds);
+
+    const refreshedState = await syncCollections();
+    return buildSidebarSnapshot(refreshedState, currentWindowId);
+  });
+}
+
 async function moveGroupToCollection(groupId, collectionId, currentWindowId, targetCollectionName = null) {
   return placeGroup(groupId, {
     targetCollectionId: collectionId,
     targetCollectionName,
     targetGroupId: null,
+    position: 'append'
+  }, currentWindowId);
+}
+
+async function removeGroupFromCollection(sourceKind, groupId, snapshotGroupId, collectionId, currentWindowId) {
+  if (!hasRequiredApis()) {
+    throw new Error('Tab group APIs are unavailable in this Firefox build.');
+  }
+
+  if (sourceKind !== 'live' && sourceKind !== 'snapshot') {
+    throw new Error('Unknown group remove mode.');
+  }
+
+  if (isUncategorizedCollectionId(collectionId)) {
+    throw new Error('Groups in Uncategorized cannot be removed from their collection.');
+  }
+
+  if (sourceKind === 'live') {
+    return moveGroupToCollection(
+      groupId,
+      UNCATEGORIZED_COLLECTION_ID,
+      currentWindowId,
+      null
+    );
+  }
+
+  return placeSavedGroup(collectionId, snapshotGroupId, {
+    targetCollectionId: UNCATEGORIZED_COLLECTION_ID,
+    targetCollectionName: null,
+    targetGroupId: null,
+    targetSnapshotGroupId: null,
     position: 'append'
   }, currentWindowId);
 }
@@ -1862,6 +1922,15 @@ browser.runtime.onMessage.addListener((message) => {
     }));
   }
 
+  if (message.type === 'sidebar:closeCollection') {
+    return closeCollection(
+      message.collectionId,
+      message.currentWindowId
+    ).catch((error) => ({
+      error: error.message
+    }));
+  }
+
   if (message.type === 'sidebar:moveGroupToCollection') {
     return moveGroupToCollection(
       message.groupId,
@@ -1958,6 +2027,18 @@ browser.runtime.onMessage.addListener((message) => {
 
   if (message.type === 'sidebar:deleteGroup') {
     return deleteGroup(
+      message.sourceKind,
+      message.groupId,
+      message.snapshotGroupId,
+      message.collectionId,
+      message.currentWindowId
+    ).catch((error) => ({
+      error: error.message
+    }));
+  }
+
+  if (message.type === 'sidebar:removeGroupFromCollection') {
+    return removeGroupFromCollection(
       message.sourceKind,
       message.groupId,
       message.snapshotGroupId,

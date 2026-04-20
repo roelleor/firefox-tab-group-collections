@@ -110,6 +110,7 @@ jobs:
           set +e
           npx --yes web-ext sign \
             --channel listed \
+            --approval-timeout 0 \
             --source-dir "$RUNNER_TEMP_DIR/amo-source" \
             --artifacts-dir "$RUNNER_TEMP_DIR/amo-artifacts" \
             --amo-metadata "$RUNNER_TEMP_DIR/amo-metadata.json" \
@@ -118,11 +119,6 @@ jobs:
           set -e
 
           if [ "$SIGN_EXIT_CODE" -eq 0 ]; then
-            exit 0
-          fi
-
-          if grep -q "Approval: timeout exceeded" "$LOG_FILE"; then
-            echo "AMO submission completed, but approval is still pending review."
             exit 0
           fi
 

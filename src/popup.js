@@ -83,11 +83,15 @@ async function sendMessage(payload) {
 async function syncOpenPanelButton(currentWindowId) {
   if (typeof browser.sidebarAction?.isOpen !== 'function') {
     openPanelButtonNode.classList.remove('hidden');
+    openPanelButtonNode.textContent = 'Open Side Panel';
+    openPanelButtonNode.dataset.sidebarState = 'closed';
     return;
   }
 
   const isOpen = await browser.sidebarAction.isOpen({ windowId: currentWindowId });
-  openPanelButtonNode.classList.toggle('hidden', Boolean(isOpen));
+  openPanelButtonNode.classList.remove('hidden');
+  openPanelButtonNode.textContent = isOpen ? 'Close Side Panel' : 'Open Side Panel';
+  openPanelButtonNode.dataset.sidebarState = isOpen ? 'open' : 'closed';
 }
 
 async function waitForSidebarOpen(currentWindowId, timeoutMs = 2500) {
@@ -260,14 +264,18 @@ function renderSnapshot(snapshot, currentWindowId) {
 openPanelButtonNode.addEventListener('click', () => {
   clearError();
 
+  const isOpen = openPanelButtonNode.dataset.sidebarState === 'open';
   const openFn = typeof browser.sidebarAction?.open === 'function'
     ? browser.sidebarAction.open.bind(browser.sidebarAction)
+    : null;
+  const closeFn = typeof browser.sidebarAction?.close === 'function'
+    ? browser.sidebarAction.close.bind(browser.sidebarAction)
     : null;
   const toggleFn = typeof browser.sidebarAction?.toggle === 'function'
     ? browser.sidebarAction.toggle.bind(browser.sidebarAction)
     : null;
 
-  if (!openFn && !toggleFn) {
+  if (!openFn && !closeFn && !toggleFn) {
     showError('Sidebar API is unavailable.');
     return;
   }
@@ -275,33 +283,33 @@ openPanelButtonNode.addEventListener('click', () => {
   try {
     const currentWindowId = lastWindowId;
 
-    if (openFn) {
-      openFn().catch((error) => {
-        if (!toggleFn) {
-          console.error('Unable to open sidebar.', error);
-          return;
-        }
-
-        toggleFn().catch((toggleError) => {
-          console.error('Unable to toggle sidebar after open() failed.', toggleError);
-        });
+    if (isOpen) {
+      const operation = closeFn || toggleFn;
+      operation().catch((error) => {
+        console.error('Unable to close sidebar.', error);
       });
+      window.setTimeout(() => {
+        window.close();
+      }, 120);
     } else {
-      toggleFn().catch((error) => {
-        console.error('Unable to toggle sidebar.', error);
-      });
+      const operation = openFn || toggleFn;
+      operation()
+        .catch((error) => {
+          if (!toggleFn || operation === toggleFn) {
+            throw error;
+          }
+          return toggleFn();
+        })
+        .then(() => waitForSidebarOpen(currentWindowId))
+        .then((didOpen) => {
+          if (didOpen) {
+            window.close();
+          }
+        })
+        .catch((error) => {
+          console.error('Unable to open sidebar.', error);
+        });
     }
-
-    Promise.resolve()
-      .then(() => waitForSidebarOpen(currentWindowId))
-      .then((didOpen) => {
-        if (didOpen) {
-          window.close();
-        }
-      })
-      .catch((error) => {
-        console.error('Unable to confirm sidebar open state.', error);
-      });
   } catch (error) {
     showError(error?.message || 'Unable to open panel.');
   }

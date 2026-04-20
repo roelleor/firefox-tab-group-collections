@@ -38,6 +38,7 @@ let lastSnapshot = null;
 let openCollectionMenuId = null;
 let openMovePanelKey = null;
 let openDeleteMenuId = null;
+let openGroupDeleteMenuKey = null;
 let openColorMenuKey = null;
 let refreshTimerId = null;
 let dragState = null;
@@ -411,6 +412,7 @@ function startGroupDrag(event, group, collectionId, row) {
   openMovePanelKey = null;
   openCollectionMenuId = null;
   openDeleteMenuId = null;
+  openGroupDeleteMenuKey = null;
 
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
@@ -563,6 +565,7 @@ function createGroupContent(group) {
     openColorMenuKey = openColorMenuKey === group.key ? null : group.key;
     openMovePanelKey = null;
     openDeleteMenuId = null;
+    openGroupDeleteMenuKey = null;
     renderSnapshot(lastSnapshot);
   });
 
@@ -678,6 +681,7 @@ function renderGroup(group, collectionId, availableCollections) {
       openMovePanelKey = openMovePanelKey === group.key ? null : group.key;
       openColorMenuKey = null;
       openDeleteMenuId = null;
+      openGroupDeleteMenuKey = null;
       renderSnapshot(lastSnapshot);
     });
     tools.appendChild(moveButton);
@@ -685,32 +689,13 @@ function renderGroup(group, collectionId, availableCollections) {
 
   const deleteButton = createNode('button', 'move-button danger-button group-delete-button', '×');
   deleteButton.type = 'button';
-  deleteButton.title = group.kind === 'live'
-    ? `Delete "${group.title}" and its tabs`
-    : `Delete saved group "${group.title}"`;
-  deleteButton.addEventListener('click', async () => {
-    const confirmed = window.confirm(
-      group.kind === 'live'
-        ? `Delete the tab group "${group.title}" and all of its tabs?`
-        : `Delete the saved group "${group.title}"?`
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    await runAction(group.kind === 'live' ? 'Deleting tab group…' : 'Deleting saved group…', async () => {
-      const snapshot = await sendMessage({
-        type: 'sidebar:deleteGroup',
-        currentWindowId,
-        sourceKind: group.kind,
-        groupId: group.runtimeGroupId || null,
-        snapshotGroupId: group.snapshotGroupId || null,
-        collectionId
-      });
-      openColorMenuKey = null;
-      openMovePanelKey = null;
-      renderSnapshot(snapshot);
-    });
+  deleteButton.title = `Delete options for "${group.title}"`;
+  deleteButton.addEventListener('click', () => {
+    openGroupDeleteMenuKey = openGroupDeleteMenuKey === group.key ? null : group.key;
+    openColorMenuKey = null;
+    openMovePanelKey = null;
+    openDeleteMenuId = null;
+    renderSnapshot(lastSnapshot);
   });
   tools.appendChild(deleteButton);
 
@@ -762,6 +747,7 @@ function renderGroup(group, collectionId, availableCollections) {
       if (targetCollectionId === collectionId && !targetCollectionName) {
         openColorMenuKey = null;
         openMovePanelKey = null;
+        openGroupDeleteMenuKey = null;
         renderSnapshot(lastSnapshot);
         return;
       }
@@ -790,6 +776,7 @@ function renderGroup(group, collectionId, availableCollections) {
           });
         openColorMenuKey = null;
         openMovePanelKey = null;
+        openGroupDeleteMenuKey = null;
         renderSnapshot(snapshot);
       });
     });
@@ -799,6 +786,7 @@ function renderGroup(group, collectionId, availableCollections) {
     cancelButton.addEventListener('click', () => {
       openColorMenuKey = null;
       openMovePanelKey = null;
+      openGroupDeleteMenuKey = null;
       renderSnapshot(lastSnapshot);
     });
 
@@ -806,12 +794,73 @@ function renderGroup(group, collectionId, availableCollections) {
     row.appendChild(movePanel);
   }
 
+  const deleteMenu = createNode('div', 'delete-menu group-delete-menu');
+  deleteMenu.classList.toggle('hidden', openGroupDeleteMenuKey !== group.key);
+
+  if (!Shared.isUncategorizedCollectionId(collectionId)) {
+    const removeButton = createNode('button', 'action-button', 'Remove from Collection');
+    removeButton.type = 'button';
+    removeButton.addEventListener('click', async () => {
+      await runAction('Removing group from collection…', async () => {
+        const snapshot = await sendMessage({
+          type: 'sidebar:removeGroupFromCollection',
+          currentWindowId,
+          sourceKind: group.kind,
+          groupId: group.runtimeGroupId || null,
+          snapshotGroupId: group.snapshotGroupId || null,
+          collectionId
+        });
+        openColorMenuKey = null;
+        openMovePanelKey = null;
+        openGroupDeleteMenuKey = null;
+        renderSnapshot(snapshot);
+      });
+    });
+    deleteMenu.appendChild(removeButton);
+  }
+
+  const deleteForeverLabel = group.kind === 'live' ? 'Delete Group + Tabs' : 'Delete Saved Group';
+  const deleteForeverButton = createNode('button', 'action-button danger-button', deleteForeverLabel);
+  deleteForeverButton.type = 'button';
+  deleteForeverButton.addEventListener('click', async () => {
+    await runAction(group.kind === 'live' ? 'Deleting tab group…' : 'Deleting saved group…', async () => {
+      const snapshot = await sendMessage({
+        type: 'sidebar:deleteGroup',
+        currentWindowId,
+        sourceKind: group.kind,
+        groupId: group.runtimeGroupId || null,
+        snapshotGroupId: group.snapshotGroupId || null,
+        collectionId
+      });
+      openColorMenuKey = null;
+      openMovePanelKey = null;
+      openGroupDeleteMenuKey = null;
+      renderSnapshot(snapshot);
+    });
+  });
+  deleteMenu.appendChild(deleteForeverButton);
+
+  const cancelDeleteButton = createNode('button', 'action-button', 'Cancel');
+  cancelDeleteButton.type = 'button';
+  cancelDeleteButton.addEventListener('click', () => {
+    openGroupDeleteMenuKey = null;
+    renderSnapshot(lastSnapshot);
+  });
+  deleteMenu.appendChild(cancelDeleteButton);
+
+  row.appendChild(deleteMenu);
+
   return row;
 }
 
 function renderCollection(collection, availableCollections, filterActive) {
+  const totalGroupCount = collection.groups.length;
+  const isFullyOpen = collection.liveGroupCount > 0 && collection.liveGroupCount === totalGroupCount;
+  const isPartlyOpen = collection.liveGroupCount > 0 && collection.liveGroupCount < totalGroupCount;
+  const hasLiveGroups = collection.liveGroupCount > 0;
   const card = createNode('section', 'collection-card');
-  card.classList.toggle('current', collection.isCurrent);
+  card.classList.toggle('is-open', isFullyOpen);
+  card.classList.toggle('is-partly-open', isPartlyOpen);
 
   const header = createNode('div', 'collection-header');
   attachCollectionDropTarget(header, card, collection);
@@ -847,6 +896,7 @@ function renderCollection(collection, availableCollections, filterActive) {
           name: nextName
         });
         openDeleteMenuId = null;
+        openGroupDeleteMenuKey = null;
         renderSnapshot(snapshot);
       });
     });
@@ -882,6 +932,7 @@ function renderCollection(collection, availableCollections, filterActive) {
           collectionId: collection.id,
           pinned: !collection.isPinned
         });
+        openGroupDeleteMenuKey = null;
         renderSnapshot(snapshot);
       });
     });
@@ -908,10 +959,10 @@ function renderCollection(collection, availableCollections, filterActive) {
   const actions = createNode('div', 'collection-actions');
 
   if (!collection.isUncategorized) {
-    const openButton = createNode('button', 'action-button', 'Open');
+    const openButton = createNode('button', 'action-button', isFullyOpen ? 'Go to' : 'Open');
     openButton.type = 'button';
     openButton.addEventListener('click', async () => {
-      if (collection.liveGroupCount > 0 && collection.snapshotGroupCount > collection.liveGroupCount) {
+      if (isPartlyOpen) {
         await runAction('Opening missing tab groups…', async () => {
           const snapshot = await sendMessage({
             type: 'sidebar:openCollection',
@@ -920,19 +971,21 @@ function renderCollection(collection, availableCollections, filterActive) {
             targetMode: 'append'
           });
           openCollectionMenuId = null;
+          openGroupDeleteMenuKey = null;
           renderSnapshot(snapshot);
         });
         return;
       }
 
-      if (collection.liveGroupCount > 0) {
-        await runAction('Opening collection…', async () => {
+      if (isFullyOpen) {
+        await runAction('Going to collection…', async () => {
           const snapshot = await sendMessage({
             type: 'sidebar:focusCollection',
             currentWindowId,
             collectionId: collection.id
           });
           openCollectionMenuId = null;
+          openGroupDeleteMenuKey = null;
           renderSnapshot(snapshot);
         });
         return;
@@ -940,9 +993,29 @@ function renderCollection(collection, availableCollections, filterActive) {
 
       openCollectionMenuId = openCollectionMenuId === collection.id ? null : collection.id;
       openDeleteMenuId = null;
+      openGroupDeleteMenuKey = null;
       renderSnapshot(lastSnapshot);
     });
     actions.appendChild(openButton);
+
+    if (hasLiveGroups) {
+      const closeButton = createNode('button', 'action-button', 'Close');
+      closeButton.type = 'button';
+      closeButton.addEventListener('click', async () => {
+        await runAction('Closing collection…', async () => {
+          const snapshot = await sendMessage({
+            type: 'sidebar:closeCollection',
+            currentWindowId,
+            collectionId: collection.id
+          });
+          openCollectionMenuId = null;
+          openDeleteMenuId = null;
+          openGroupDeleteMenuKey = null;
+          renderSnapshot(snapshot);
+        });
+      });
+      actions.appendChild(closeButton);
+    }
 
     const newGroupButton = createNode('button', 'action-button', 'New Group');
     newGroupButton.type = 'button';
@@ -959,6 +1032,7 @@ function renderCollection(collection, availableCollections, filterActive) {
           collectionId: collection.id,
           title: nextTitle
         });
+        openGroupDeleteMenuKey = null;
         renderSnapshot(snapshot);
       });
     });
@@ -982,6 +1056,7 @@ function renderCollection(collection, availableCollections, filterActive) {
           mode: 'collection-and-groups'
         });
         openDeleteMenuId = null;
+        openGroupDeleteMenuKey = null;
         renderSnapshot(snapshot);
       });
     });
@@ -994,6 +1069,7 @@ function renderCollection(collection, availableCollections, filterActive) {
     deleteButton.addEventListener('click', () => {
       openDeleteMenuId = openDeleteMenuId === collection.id ? null : collection.id;
       openCollectionMenuId = null;
+      openGroupDeleteMenuKey = null;
       renderSnapshot(lastSnapshot);
     });
     actions.appendChild(deleteButton);
@@ -1002,7 +1078,7 @@ function renderCollection(collection, availableCollections, filterActive) {
   body.appendChild(actions);
 
   const openMenu = createNode('div', 'open-menu');
-  openMenu.classList.toggle('hidden', collection.liveGroupCount > 0 || openCollectionMenuId !== collection.id);
+  openMenu.classList.toggle('hidden', hasLiveGroups || openCollectionMenuId !== collection.id);
 
   const newWindowButton = createNode('button', 'action-button', 'New Window');
   newWindowButton.type = 'button';
@@ -1016,6 +1092,7 @@ function renderCollection(collection, availableCollections, filterActive) {
         targetMode: 'new-window'
       });
       openCollectionMenuId = null;
+      openGroupDeleteMenuKey = null;
       renderSnapshot(snapshot);
     });
   });
@@ -1032,6 +1109,7 @@ function renderCollection(collection, availableCollections, filterActive) {
         targetMode: 'append'
       });
       openCollectionMenuId = null;
+      openGroupDeleteMenuKey = null;
       renderSnapshot(snapshot);
     });
   });
@@ -1060,6 +1138,7 @@ function renderCollection(collection, availableCollections, filterActive) {
         mode: 'collection-only'
       });
       openDeleteMenuId = null;
+      openGroupDeleteMenuKey = null;
       renderSnapshot(snapshot);
     });
   });
@@ -1082,6 +1161,7 @@ function renderCollection(collection, availableCollections, filterActive) {
         mode: 'collection-and-groups'
       });
       openDeleteMenuId = null;
+      openGroupDeleteMenuKey = null;
       renderSnapshot(snapshot);
     });
   });
@@ -1090,6 +1170,7 @@ function renderCollection(collection, availableCollections, filterActive) {
   cancelDeleteButton.type = 'button';
   cancelDeleteButton.addEventListener('click', () => {
     openDeleteMenuId = null;
+    openGroupDeleteMenuKey = null;
     renderSnapshot(lastSnapshot);
   });
 
@@ -1337,6 +1418,7 @@ createCollectionButtonNode.addEventListener('click', async () => {
     });
     openCollectionMenuId = null;
     openDeleteMenuId = null;
+    openGroupDeleteMenuKey = null;
     renderSnapshot(snapshot);
   });
 });
