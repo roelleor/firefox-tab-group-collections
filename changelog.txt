@@ -2,6 +2,18 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+1.4.0 - 2026-04-20
+
+Changed
+- Group deletion now always asks for confirmation, with clearer wording for open and closed groups.
+- Auto-created collections now follow the first group's name more naturally until the collection is clearly established.
+
+Fixed
+- New browser-created groups only inherit a neighboring collection when grouped tabs are directly adjacent in tab order.
+- Ungrouped tabs now break collection inheritance for new groups instead of letting them join the nearest collection anyway.
+- New browser-created groups no longer inherit the Uncategorized bucket.
+- Canceled native Firefox group creation is cleaned up more reliably instead of leaving behind draft collections.
+
 1.3.0 - 2026-04-20
 
 Added

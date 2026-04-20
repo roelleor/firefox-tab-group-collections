@@ -819,10 +819,18 @@ function renderGroup(group, collectionId, availableCollections) {
     deleteMenu.appendChild(removeButton);
   }
 
-  const deleteForeverLabel = group.kind === 'live' ? 'Delete Group + Tabs' : 'Delete Saved Group';
-  const deleteForeverButton = createNode('button', 'action-button danger-button', deleteForeverLabel);
+  const deleteForeverButton = createNode('button', 'action-button danger-button', 'Delete Group');
   deleteForeverButton.type = 'button';
   deleteForeverButton.addEventListener('click', async () => {
+    const confirmed = window.confirm(
+      group.kind === 'live'
+        ? 'Delete this group and close its tabs?'
+        : 'Delete this saved group and its tabs?'
+    );
+    if (!confirmed) {
+      return;
+    }
+
     await runAction(group.kind === 'live' ? 'Deleting tab group…' : 'Deleting saved group…', async () => {
       const snapshot = await sendMessage({
         type: 'sidebar:deleteGroup',

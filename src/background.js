@@ -2,6 +2,7 @@ const STORAGE_KEY = 'tab-group-collections.state';
 const TAB_MEMBERSHIP_KEY = 'tab-group-collections.membership';
 const NONE_GROUP_ID = browser.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
 const SYNC_DELAY_MS = 180;
+const TRANSIENT_AUTO_COLLECTION_GRACE_MS = 30000;
 const MAX_BADGE_COUNT = 99;
 const {
   UNCATEGORIZED_COLLECTION_ID,
@@ -74,6 +75,18 @@ function nextCollectionName(state) {
   return name;
 }
 
+function isGeneratedCollectionName(name) {
+  return /^New collection \(\d+\)$/.test(getCollectionName(name));
+}
+
+function isAutoNamedCollection(collection) {
+  return Boolean(
+    collection &&
+    !isUncategorizedCollectionId(collection.id) &&
+    (collection.autoNamed === true || isGeneratedCollectionName(collection.name))
+  );
+}
+
 function sortTabs(tabs) {
   return [...tabs].sort((left, right) => (
     left.windowId - right.windowId ||
@@ -123,6 +136,12 @@ function normalizeCollectionRecord(collection, collectionId) {
     name: isUncategorized
       ? UNCATEGORIZED_COLLECTION_NAME
       : getCollectionName(collection?.name),
+    autoNamed: isUncategorized
+      ? false
+      : collection?.autoNamed === true || (
+        collection?.autoNamed !== false &&
+        isGeneratedCollectionName(collection?.name)
+      ),
     pinned: isUncategorized ? false : Boolean(collection?.pinned),
     createdAt: Number.isFinite(collection?.createdAt) ? collection.createdAt : now,
     updatedAt: Number.isFinite(collection?.updatedAt) ? collection.updatedAt : now,
@@ -162,6 +181,7 @@ function createUncategorizedCollectionRecord(state) {
   const collection = {
     id: UNCATEGORIZED_COLLECTION_ID,
     name: UNCATEGORIZED_COLLECTION_NAME,
+    autoNamed: false,
     pinned: false,
     createdAt: now,
     updatedAt: now,
@@ -184,6 +204,7 @@ function createCollectionRecord(state, collectionId = createId('collection'), re
   const collection = {
     id: collectionId,
     name: explicitName || nextCollectionName(state),
+    autoNamed: !explicitName,
     pinned: false,
     createdAt: now,
     updatedAt: now,
@@ -276,16 +297,34 @@ function resolveExistingMembership(memberships) {
   return bestKey ? membershipByKey.get(bestKey) : null;
 }
 
+function getInheritableCollectionId(entry) {
+  const collectionId = entry?.membership?.collectionId || null;
+  if (!collectionId || isUncategorizedCollectionId(collectionId)) {
+    return null;
+  }
+
+  return collectionId;
+}
+
 function findSiblingCollectionId(entries, startIndex) {
-  for (let index = startIndex - 1; index >= 0; index -= 1) {
-    if (entries[index].membership?.collectionId) {
-      return entries[index].membership.collectionId;
+  const currentEntry = entries[startIndex];
+  if (!currentEntry) {
+    return null;
+  }
+
+  const previousEntry = entries[startIndex - 1];
+  if (previousEntry && previousEntry.lastTabIndex + 1 === currentEntry.firstTabIndex) {
+    const previousCollectionId = getInheritableCollectionId(previousEntry);
+    if (previousCollectionId) {
+      return previousCollectionId;
     }
   }
 
-  for (let index = startIndex + 1; index < entries.length; index += 1) {
-    if (entries[index].membership?.collectionId) {
-      return entries[index].membership.collectionId;
+  const nextEntry = entries[startIndex + 1];
+  if (nextEntry && currentEntry.lastTabIndex + 1 === nextEntry.firstTabIndex) {
+    const nextCollectionId = getInheritableCollectionId(nextEntry);
+    if (nextCollectionId) {
+      return nextCollectionId;
     }
   }
 
@@ -332,6 +371,7 @@ async function collectRuntime() {
       windowId: group.windowId,
       tabCount: groupTabs.length,
       firstTabIndex: groupTabs[0].index,
+      lastTabIndex: groupTabs[groupTabs.length - 1].index,
       existingMembership: resolveExistingMembership(
         groupTabs.map((tab) => membershipByTabId.get(tab.id))
       ),
@@ -536,6 +576,129 @@ function updateCollectionSnapshots(state, groupsByWindow) {
   return changed;
 }
 
+function freezeAutoNamedCollection(state, collectionId) {
+  const collection = state.collections[collectionId];
+  if (!isAutoNamedCollection(collection)) {
+    return false;
+  }
+
+  collection.autoNamed = false;
+  collection.updatedAt = Date.now();
+  return true;
+}
+
+function finalizeAutoNamedCollectionTitle(state, collectionId, title) {
+  const collection = state.collections[collectionId];
+  if (!isAutoNamedCollection(collection)) {
+    return false;
+  }
+
+  if (collection.snapshot.groups.length !== 1) {
+    collection.autoNamed = false;
+    collection.updatedAt = Date.now();
+    return true;
+  }
+
+  const nextTitle = normalizeStoredGroupTitle(title);
+  if (!nextTitle) {
+    return false;
+  }
+
+  collection.name = nextTitle;
+  collection.autoNamed = false;
+  collection.updatedAt = Date.now();
+  return true;
+}
+
+function updateAutoNamedCollectionTitles(state) {
+  let changed = false;
+
+  for (const collection of Object.values(state.collections)) {
+    if (isUncategorizedCollectionId(collection.id)) {
+      continue;
+    }
+
+    if (!isAutoNamedCollection(collection)) {
+      continue;
+    }
+
+    if (collection.snapshot.groups.length !== 1) {
+      collection.autoNamed = false;
+      collection.updatedAt = Date.now();
+      changed = true;
+      continue;
+    }
+
+    const groupTitle = normalizeStoredGroupTitle(collection.snapshot.groups[0]?.title);
+    if (!groupTitle) {
+      continue;
+    }
+
+    if (collection.name !== groupTitle) {
+      collection.name = groupTitle;
+      collection.updatedAt = Date.now();
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+function freezeAutoNamedCollectionsWithEstablishedLiveGroups(state, groupsByWindow) {
+  const entriesByCollection = buildEntriesByCollection(groupsByWindow);
+  let changed = false;
+
+  for (const [collectionId, entries] of entriesByCollection) {
+    const collection = state.collections[collectionId];
+    if (!isAutoNamedCollection(collection)) {
+      continue;
+    }
+
+    if (entries.some((entry) => entry.tabCount > 1)) {
+      collection.autoNamed = false;
+      collection.updatedAt = Date.now();
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+function pruneTransientAutoNamedCollections(state, groupsByWindow) {
+  const entriesByCollection = buildEntriesByCollection(groupsByWindow);
+  let changed = false;
+  const now = Date.now();
+
+  for (const [collectionId, collection] of Object.entries(state.collections)) {
+    if (!isAutoNamedCollection(collection)) {
+      continue;
+    }
+
+    const liveEntries = entriesByCollection.get(collectionId) || [];
+    if (liveEntries.length) {
+      continue;
+    }
+
+    if (collection.snapshot.groups.length === 0) {
+      delete state.collections[collectionId];
+      changed = true;
+      continue;
+    }
+
+    if (collection.snapshot.groups.length !== 1) {
+      continue;
+    }
+
+    const ageMs = now - (Number.isFinite(collection.createdAt) ? collection.createdAt : now);
+    if (ageMs <= TRANSIENT_AUTO_COLLECTION_GRACE_MS) {
+      delete state.collections[collectionId];
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
 async function updateButtonState(state, groupsByWindow) {
   const collectionCount = Object.keys(state.collections).length;
   let openGroupCount = 0;
@@ -643,6 +806,18 @@ async function syncCollections() {
   }
 
   if (updateCollectionSnapshots(state, runtime.groupsByWindow)) {
+    stateChanged = true;
+  }
+
+  if (updateAutoNamedCollectionTitles(state)) {
+    stateChanged = true;
+  }
+
+  if (freezeAutoNamedCollectionsWithEstablishedLiveGroups(state, runtime.groupsByWindow)) {
+    stateChanged = true;
+  }
+
+  if (pruneTransientAutoNamedCollections(state, runtime.groupsByWindow)) {
     stateChanged = true;
   }
 
@@ -1001,6 +1176,13 @@ async function placeGroup(groupId, placement, currentWindowId) {
 
     targetCollectionId = resolvedPlacement?.targetCollectionId || targetCollectionId;
 
+    if (freezeAutoNamedCollection(state, entry.membership.collectionId)) {
+      stateChanged = true;
+    }
+    if (freezeAutoNamedCollection(state, targetCollectionId)) {
+      stateChanged = true;
+    }
+
     if (stateChanged) {
       await saveState(state);
     }
@@ -1102,6 +1284,7 @@ async function renameCollection(collectionId, name, currentWindowId) {
 
     if (collection.name !== trimmedName) {
       collection.name = trimmedName;
+      collection.autoNamed = false;
       collection.updatedAt = Date.now();
       await saveState(state);
     }
@@ -1128,9 +1311,12 @@ async function setCollectionPinned(collectionId, pinned, currentWindowId) {
       throw new Error('Uncategorized cannot be pinned.');
     }
 
+    const frozeAutoName = freezeAutoNamedCollection(state, collectionId);
     if (collection.pinned !== Boolean(pinned)) {
       collection.pinned = Boolean(pinned);
       collection.updatedAt = Date.now();
+      await saveState(state);
+    } else if (frozeAutoName) {
       await saveState(state);
     }
 
@@ -1157,6 +1343,7 @@ async function focusCollection(collectionId, currentWindowId) {
       throw new Error('Uncategorized cannot be deleted.');
     }
 
+    freezeAutoNamedCollection(state, collectionId);
     const entriesByCollection = buildEntriesByCollection(syncedState.runtime.groupsByWindow);
     const liveEntries = entriesByCollection.get(collectionId) || [];
     const target = pickCollectionFocusTarget(liveEntries);
@@ -1193,6 +1380,10 @@ async function closeCollection(collectionId, currentWindowId) {
 
     if (!collection) {
       throw new Error('Collection not found.');
+    }
+
+    if (freezeAutoNamedCollection(state, collectionId)) {
+      await saveState(state);
     }
 
     const entriesByCollection = buildEntriesByCollection(syncedState.runtime.groupsByWindow);
@@ -1233,6 +1424,12 @@ async function removeGroupFromCollection(sourceKind, groupId, snapshotGroupId, c
   }
 
   if (sourceKind === 'live') {
+    await enqueueOperation(async () => {
+      const state = await loadState();
+      if (freezeAutoNamedCollection(state, collectionId)) {
+        await saveState(state);
+      }
+    });
     return moveGroupToCollection(
       groupId,
       UNCATEGORIZED_COLLECTION_ID,
@@ -1271,6 +1468,7 @@ async function deleteGroup(sourceKind, groupId, snapshotGroupId, collectionId, c
 
       const sourceCollection = state.collections[entry.membership.collectionId];
       if (sourceCollection) {
+        freezeAutoNamedCollection(state, sourceCollection.id);
         const { groups } = removeSnapshotGroup(sourceCollection.snapshot, entry.membership.groupKey);
         setCollectionSnapshot(sourceCollection, groups);
         await saveState(state);
@@ -1290,6 +1488,7 @@ async function deleteGroup(sourceKind, groupId, snapshotGroupId, collectionId, c
       throw new Error('Collection not found.');
     }
 
+    freezeAutoNamedCollection(state, collectionId);
     const { removedGroup, groups } = removeSnapshotGroup(sourceCollection.snapshot, snapshotGroupId);
     if (!removedGroup) {
       throw new Error('Saved group not found.');
@@ -1346,6 +1545,9 @@ async function renameGroup(sourceKind, groupId, snapshotGroupId, collectionId, t
 
       await browser.tabGroups.update(groupId, { title: nextTitle });
       const refreshedState = await syncCollections();
+      if (finalizeAutoNamedCollectionTitle(refreshedState.state, entry.membership.collectionId, nextTitle)) {
+        await saveState(refreshedState.state);
+      }
       return buildSidebarSnapshot(refreshedState, currentWindowId || entry.windowId);
     }
 
@@ -1363,6 +1565,7 @@ async function renameGroup(sourceKind, groupId, snapshotGroupId, collectionId, t
         : cloneSnapshotGroup(group)
     ));
     setCollectionSnapshot(collection, groups);
+    finalizeAutoNamedCollectionTitle(state, collectionId, nextTitle);
     await saveState(state);
     return buildSidebarSnapshot({ state, runtime: syncedState.runtime }, currentWindowId);
   });
@@ -1387,6 +1590,7 @@ async function updateGroupColor(
   return enqueueOperation(async () => {
     const syncedState = await syncCollections();
     const state = syncedState.state;
+    const frozeAutoNamedCollection = freezeAutoNamedCollection(state, collectionId);
     const nextColor = getRequestedGroupColor(color);
 
     if (sourceKind === 'live') {
@@ -1395,6 +1599,9 @@ async function updateGroupColor(
         throw new Error('Tab group not found.');
       }
 
+      if (frozeAutoNamedCollection) {
+        await saveState(state);
+      }
       await browser.tabGroups.update(groupId, { color: nextColor });
       const refreshedState = await syncCollections();
       return buildSidebarSnapshot(refreshedState, currentWindowId || entry.windowId);
@@ -1486,6 +1693,7 @@ async function createGroup(collectionId, currentWindowId, title) {
       throw new Error('Collection not found.');
     }
 
+    freezeAutoNamedCollection(state, collectionId);
     const nextColor = pickNextGroupColor(collection.snapshot.groups);
     const entriesByCollection = buildEntriesByCollection(syncedState.runtime.groupsByWindow);
     const liveEntries = entriesByCollection.get(collectionId) || [];
@@ -1590,6 +1798,7 @@ async function placeSavedGroup(sourceCollectionId, snapshotGroupId, placement, c
       throw new Error('Source collection not found.');
     }
 
+    freezeAutoNamedCollection(state, sourceCollectionId);
     const { removedGroup, groups: sourceGroups } = removeSnapshotGroup(sourceCollection.snapshot, snapshotGroupId);
     if (!removedGroup) {
       throw new Error('Saved group not found.');
@@ -1607,6 +1816,9 @@ async function placeSavedGroup(sourceCollectionId, snapshotGroupId, placement, c
         return buildSidebarSnapshot(syncedState, currentWindowId);
       }
     }
+
+    freezeAutoNamedCollection(state, sourceCollectionId);
+    freezeAutoNamedCollection(state, resolvedPlacement.targetCollectionId);
 
     setCollectionSnapshot(sourceCollection, sourceGroups);
     let targetCollection = state.collections[resolvedPlacement.targetCollectionId];
@@ -1712,6 +1924,7 @@ async function openCollection(collectionId, targetMode, currentWindowId) {
       throw new Error('Collection not found.');
     }
 
+    freezeAutoNamedCollection(state, collectionId);
     const snapshotGroups = collection.snapshot.groups;
     if (!snapshotGroups.length) {
       throw new Error('This collection has no saved groups to open yet.');
@@ -1789,6 +2002,7 @@ async function openGroup(collectionId, snapshotGroupId, currentWindowId) {
       throw new Error('Collection not found.');
     }
 
+    freezeAutoNamedCollection(state, collectionId);
     const entriesByCollection = buildEntriesByCollection(syncedState.runtime.groupsByWindow);
     const liveEntries = entriesByCollection.get(collectionId) || [];
     const existingLiveEntry = liveEntries.find((entry) => entry.membership.groupKey === snapshotGroupId);
