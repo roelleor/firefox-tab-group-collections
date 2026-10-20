@@ -33,6 +33,17 @@ The packaged artifact is written to:
 dist/tab-group-collections.zip
 ```
 
+Run the automated checks with:
+
+```bash
+npm test
+npm run check:js
+npm run test:e2e
+```
+
+The E2E tests launch Firefox with fresh temporary profiles and synthetic groups.
+They do not use your normal Firefox profile or stored collections.
+
 ## Notes
 
 - The extension uses `browser.storage.local` for collection state.

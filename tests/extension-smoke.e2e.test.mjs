@@ -159,11 +159,11 @@ async function waitForBodyText(driver, matcher, timeout = 10000) {
   }, timeout);
 }
 
-test('extension popup hides Uncategorized while sidebar still shows it', async (t) => {
+async function launchExtension(t) {
   await buildExtensionPackage();
 
   const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tab-group-collections-e2e-'));
-  const options = new firefox.Options().addArguments('-profile', profileDir);
+  const options = new firefox.Options().addArguments('-no-remote', '-profile', profileDir);
   const firefoxBinary = await resolveFirefoxBinary();
   if (firefoxBinary) {
     options.setBinary(firefoxBinary);
@@ -172,15 +172,26 @@ test('extension popup hides Uncategorized while sidebar still shows it', async (
     options.addArguments('-headless');
   }
 
-  const driver = await new Builder()
+  let driver;
+  t.after(async () => {
+    try {
+      if (driver) await driver.quit();
+    } finally {
+      await fs.rm(profileDir, { recursive: true, force: true });
+    }
+  });
+
+  // Firefox restricts WebDriver access to extension pages. Enable it only in
+  // this disposable test process, which cannot connect to a running profile.
+  const service = new firefox.ServiceBuilder().setEnvironment({
+    ...process.env,
+    MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: '1'
+  });
+  driver = await new Builder()
     .forBrowser('firefox')
     .setFirefoxOptions(options)
+    .setFirefoxService(service)
     .build();
-
-  t.after(async () => {
-    await driver.quit();
-    await fs.rm(profileDir, { recursive: true, force: true });
-  });
 
   await driver.installAddon(EXTENSION_PACKAGE_PATH, true);
   const extensionUuid = await waitForExtensionUuid(profileDir);
@@ -189,6 +200,11 @@ test('extension popup hides Uncategorized while sidebar still shows it', async (
   await driver.get(`${extensionBaseUrl}/src/sidebar.html`);
   await driver.wait(until.elementLocated(By.css('main.app')), 10000);
 
+  return { driver, extensionBaseUrl };
+}
+
+test('extension popup hides Uncategorized while sidebar still shows it', async (t) => {
+  const { driver, extensionBaseUrl } = await launchExtension(t);
   await seedCollections(driver);
 
   await driver.navigate().refresh();
@@ -208,4 +224,110 @@ test('extension popup hides Uncategorized while sidebar still shows it', async (
   assert.match(popupBodyText, /\bWork\b/, 'Popup should include the Work collection.');
   assert.doesNotMatch(popupBodyText, /\bUncategorized\b/, 'Popup should not expose Uncategorized.');
   assert.doesNotMatch(popupBodyText, /\bLoose tab\b/, 'Popup should not expose uncategorized groups.');
+});
+
+async function extensionCall(driver, action, ...args) {
+  const source = `const done = arguments[arguments.length - 1];
+    (${action.toString()})(...Array.from(arguments).slice(0, -1)).then(
+      value => done({ value }), error => done({ error: error.message || String(error) })
+    );`;
+  const result = await executeAsync(driver, source, ...args);
+  assert.equal(result.error, undefined);
+  return result.value;
+}
+
+async function assertRenderedGroupTitles(driver, expected) {
+  await driver.navigate().refresh();
+  await driver.wait(async () => {
+    // Read the titles together: background sync can replace rows between
+    // separate WebDriver calls and make previously found elements stale.
+    const text = await driver.executeScript(function () {
+      return Array.from(document.querySelectorAll('.group-title'), title => title.textContent);
+    });
+    return JSON.stringify(text) === JSON.stringify(expected);
+  }, 10000, 'Sidebar should render every distinct native group once.');
+}
+
+for (const mode of ['split', 'duplicate']) {
+  test(`${mode} grouped tabs retain distinct names through sync and reopening`, async (t) => {
+    const { driver } = await launchExtension(t);
+    const currentWindowId = await getCurrentWindowId(driver);
+    const created = await sendRuntimeMessage(driver, {
+      type: 'sidebar:createCollection', currentWindowId, name: 'Synthetic groups'
+    });
+    const collectionId = created.createdCollectionId;
+    const getCollection = snapshot => snapshot.collections.find(collection => collection.id === collectionId);
+    const original = await sendRuntimeMessage(driver, {
+      type: 'sidebar:createGroup', currentWindowId, collectionId, title: 'Original group'
+    });
+    const originalGroup = getCollection(original).groups[0];
+    const tabId = await extensionCall(driver, async (groupId, mode) => {
+      const [originalTab] = await browser.tabs.query({ groupId });
+      const tab = mode === 'duplicate'
+        ? await browser.tabs.duplicate(originalTab.id)
+        : await browser.tabs.create({ url: 'about:blank', active: false });
+      await browser.tabs.group({ groupId, tabIds: [tab.id] });
+      return tab.id;
+    }, originalGroup.runtimeGroupId, mode);
+    // Stamp both tabs with the original membership before splitting the group.
+    await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+    const splitGroupId = await extensionCall(driver, async tabId => {
+      const groupId = await browser.tabs.group({ tabIds: [tabId] });
+      await browser.tabGroups.update(groupId, { title: 'Split-off group', color: 'red' });
+      return groupId;
+    }, tabId);
+    const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+    const collection = getCollection(snapshot);
+    assert.deepEqual(collection.groups.map(group => group.title), ['Original group', 'Split-off group']);
+    assert.deepEqual(collection.groups.map(group => group.runtimeGroupId), [originalGroup.runtimeGroupId, splitGroupId]);
+    assert.equal(new Set(collection.groups.map(group => group.snapshotGroupId)).size, 2);
+    assert.equal(collection.groups[0].snapshotGroupId, originalGroup.snapshotGroupId);
+    await assertRenderedGroupTitles(driver, ['Original group', 'Split-off group']);
+
+    const closed = await sendRuntimeMessage(driver, {
+      type: 'sidebar:closeCollection', currentWindowId, collectionId
+    });
+    assert.equal(getCollection(closed).liveGroupCount, 0);
+    assert.deepEqual(getCollection(closed).groups.map(group => group.title), ['Original group', 'Split-off group']);
+    const reopened = await sendRuntimeMessage(driver, {
+      type: 'sidebar:openCollection', currentWindowId, collectionId, targetMode: 'append'
+    });
+    assert.equal(getCollection(reopened).liveGroupCount, 2);
+    assert.deepEqual(getCollection(reopened).groups.map(group => group.snapshotGroupId), collection.groups.map(group => group.snapshotGroupId));
+    await assertRenderedGroupTitles(driver, ['Original group', 'Split-off group']);
+  });
+}
+
+test('sync repairs an already-collided many-group collection without extra sidebar rows', async (t) => {
+  const { driver } = await launchExtension(t);
+  const currentWindowId = await getCurrentWindowId(driver);
+  const created = await sendRuntimeMessage(driver, {
+    type: 'sidebar:createCollection', currentWindowId, name: 'Synthetic recovery'
+  });
+  const collectionId = created.createdCollectionId;
+  const titles = ['Wednesday', 'Thursday morning', 'Thursday afternoon', 'Friday', 'Saturday'];
+  for (const title of titles) {
+    await sendRuntimeMessage(driver, { type: 'sidebar:createGroup', currentWindowId, collectionId, title });
+  }
+  await extensionCall(driver, async collectionId => {
+    const storageKey = 'tab-group-collections.state';
+    const membershipKey = 'tab-group-collections.membership';
+    const state = (await browser.storage.local.get(storageKey))[storageKey];
+    const groups = await browser.tabGroups.query({});
+    for (let index = 0; index < groups.length; index += 1) {
+      const groupKey = index === 3 ? 'friday-key' : 'shared-key';
+      state.collections[collectionId].snapshot.groups[index].id = groupKey;
+      for (const tab of await browser.tabs.query({ groupId: groups[index].id })) {
+        await browser.sessions.setTabValue(tab.id, membershipKey, { collectionId, groupKey });
+      }
+    }
+    await browser.storage.local.set({ [storageKey]: state });
+  }, collectionId);
+  const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+  const collection = snapshot.collections.find(collection => collection.id === collectionId);
+  assert.deepEqual(collection.groups.map(group => group.title), titles);
+  assert.equal(collection.snapshotGroupCount, 5);
+  assert.equal(new Set(collection.groups.map(group => group.snapshotGroupId)).size, 5);
+  assert.equal(new Set(collection.groups.map(group => group.runtimeGroupId)).size, 5);
+  await assertRenderedGroupTitles(driver, titles);
 });

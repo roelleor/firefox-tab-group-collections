@@ -705,6 +705,127 @@ async function updateButtonState(state, groupsByWindow) {
   ]);
 }
 
+/**
+ * Give distinct groups separate saved identities before syncing their tabs.
+ * Splitting or duplicating grouped tabs can copy an identity into another native
+ * group. Repair saved snapshots too, retaining closed groups and their URLs.
+ */
+function repairDuplicateGroupIdentities(state, groupsByWindow) {
+  const entriesByCollection = buildEntriesByCollection(groupsByWindow);
+  let changed = false;
+
+  for (const collection of Object.values(state.collections)) {
+    const buckets = new Map();
+    const getBucket = (groupKey) => {
+      if (!buckets.has(groupKey)) {
+        buckets.set(groupKey, { snapshots: [], entries: [] });
+      }
+      return buckets.get(groupKey);
+    };
+
+    for (const group of collection.snapshot.groups) {
+      getBucket(group.id).snapshots.push(group);
+    }
+    for (const entry of entriesByCollection.get(collection.id) || []) {
+      getBucket(entry.membership.groupKey).entries.push(entry);
+    }
+
+    let snapshotChanged = false;
+    for (const { snapshots, entries } of buckets.values()) {
+      if (snapshots.length <= 1 && entries.length <= 1) {
+        continue;
+      }
+
+      const remainingEntries = new Set(entries);
+      const entryBySnapshot = new Map();
+      const sameTitleAndColor = (group, entry) => (
+        group.title === normalizeStoredGroupTitle(entry.group.title)
+        && group.color === getGroupColor(entry.group.color)
+      );
+      // Match every recognizable snapshot before falling back to browser order.
+      // Otherwise an earlier closed snapshot could claim a later live group.
+      const matchers = [
+        {
+          matches: (group, entry) => sameSnapshot(
+            { ...group, collapsed: false },
+            { ...buildSnapshotGroupFromEntry(entry), collapsed: false }
+          ),
+          unique: false
+        },
+        {
+          matches: (group, entry) => {
+            if (!sameTitleAndColor(group, entry) || !group.tabs.length) {
+              return false;
+            }
+            // Every saved tab must still be present, including repeated URLs.
+            // A shared home page alone cannot identify a closed snapshot.
+            const remainingUrls = entry.tabs.map((tab) => getSnapshotUrl(tab.url));
+            return group.tabs.every((savedTab) => {
+              const index = remainingUrls.indexOf(savedTab.url);
+              if (index === -1) {
+                return false;
+              }
+              remainingUrls.splice(index, 1);
+              return true;
+            });
+          },
+          unique: true
+        },
+        // A single snapshot describes the group before it was split. With
+        // several snapshots, an uncertain match must keep their saved URLs.
+        ...(snapshots.length === 1 ? [
+          { matches: sameTitleAndColor, unique: true },
+          { matches: () => true, unique: false }
+        ] : [])
+      ];
+      for (const { matches, unique } of matchers) {
+        for (const group of snapshots) {
+          if (entryBySnapshot.has(group)) {
+            continue;
+          }
+          const candidates = [...remainingEntries].filter((candidate) => matches(group, candidate));
+          if (!candidates.length) {
+            continue;
+          }
+          const entry = candidates[0];
+          if (unique && (candidates.length !== 1 || snapshots.some((other) => (
+            other !== group && !entryBySnapshot.has(other) && matches(other, entry)
+          )))) {
+            continue;
+          }
+          entryBySnapshot.set(group, entry);
+          remainingEntries.delete(entry);
+        }
+      }
+
+      const records = [
+        ...snapshots.map((group) => ({ group, entry: entryBySnapshot.get(group) })),
+        ...[...remainingEntries].map((entry) => ({ group: null, entry }))
+      ];
+      // The first saved occurrence keeps its identity. Later occurrences become
+      // separate groups, including snapshots that are currently closed.
+      for (const { group, entry } of records.slice(1)) {
+        const groupKey = createId('group');
+        if (group) {
+          group.id = groupKey;
+          snapshotChanged = true;
+        }
+        if (entry) {
+          entry.membership = { ...entry.membership, groupKey };
+        }
+        changed = true;
+      }
+    }
+
+    if (snapshotChanged) {
+      setCollectionSnapshot(collection, collection.snapshot.groups);
+    }
+  }
+
+  return changed;
+}
+
+/** Resolve collection membership, repair group identities, and save live snapshots. */
 async function syncCollections() {
   const state = await loadState();
   const runtime = await collectRuntime();
@@ -759,7 +880,13 @@ async function syncCollections() {
         collectionId
       };
     }
+  }
 
+  if (repairDuplicateGroupIdentities(state, runtime.groupsByWindow)) {
+    stateChanged = true;
+  }
+
+  for (const entries of runtime.groupsByWindow.values()) {
     for (const entry of entries) {
       for (const tab of entry.tabs) {
         const currentMembership = runtime.membershipByTabId.get(tab.id);
