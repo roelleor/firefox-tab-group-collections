@@ -17,6 +17,7 @@ const {
   pickNextGroupColor,
   getSnapshotUrl,
   getRestorableUrl,
+  isEmptyNewTab,
   cloneSnapshotGroup,
   insertSnapshotGroup,
   mergeSnapshotGroupsWithLiveOrder,
@@ -819,6 +820,34 @@ function buildCurrentCollectionId(groupsByWindow, currentWindowId) {
   return activeEntry?.membership?.collectionId || null;
 }
 
+function getTabsInWindow(runtime, windowId) {
+  if (windowId === null || windowId === undefined) {
+    return [];
+  }
+
+  return sortTabs(runtime.tabs.filter((tab) => tab.windowId === windowId));
+}
+
+function getOnlyEmptyNewTabInWindow(runtime, windowId) {
+  const tabs = getTabsInWindow(runtime, windowId);
+  if (tabs.length !== 1) {
+    return null;
+  }
+
+  return isEmptyNewTab(tabs[0], NONE_GROUP_ID) ? tabs[0] : null;
+}
+
+async function removeEmptyNewTabIfUnchanged(tabId) {
+  try {
+    const tab = await browser.tabs.get(tabId);
+    if (isEmptyNewTab(tab, NONE_GROUP_ID)) {
+      await browser.tabs.remove(tab.id);
+    }
+  } catch (error) {
+    console.debug('Unable to remove replaced empty tab.', error);
+  }
+}
+
 function buildRuntimeGroupSnapshot(entry, currentWindowId) {
   return {
     key: `live-${entry.group.id}`,
@@ -888,6 +917,7 @@ function buildSidebarSnapshot(syncedState, currentWindowId) {
     ...entriesByCollection.keys()
   ]);
   const currentCollectionId = buildCurrentCollectionId(runtime.groupsByWindow, currentWindowId);
+  const currentWindowEmptyTab = getOnlyEmptyNewTabInWindow(runtime, currentWindowId);
   const collections = [];
 
   for (const collectionId of collectionIds) {
@@ -947,6 +977,7 @@ function buildSidebarSnapshot(syncedState, currentWindowId) {
   return {
     currentWindowId,
     currentCollectionId,
+    currentWindowHasOnlyEmptyNewTab: Boolean(currentWindowEmptyTab),
     collections: collectionsForDisplay,
     availableCollections,
     totalCollectionCount: collectionsForDisplay.length,
@@ -2028,6 +2059,9 @@ async function openCollection(collectionId, targetMode, currentWindowId) {
 
     let targetWindowId = currentWindowId;
     let seedTab = null;
+    const emptyCurrentWindowTab = targetMode === 'append' && !liveEntries.length
+      ? getOnlyEmptyNewTabInWindow(syncedState.runtime, currentWindowId)
+      : null;
 
     if (targetMode === 'new-window') {
       const firstUrl = getRestorableUrl(groupsToOpen[0].tabs[0]?.url);
@@ -2048,6 +2082,10 @@ async function openCollection(collectionId, targetMode, currentWindowId) {
         if (nextIndex !== -1) {
           nextIndex += getSnapshotGroupTabCount(snapshotGroup);
         }
+      }
+
+      if (emptyCurrentWindowTab && targetWindowId === currentWindowId) {
+        await removeEmptyNewTabIfUnchanged(emptyCurrentWindowTab.id);
       }
 
       collection.lastActiveAt = Date.now();

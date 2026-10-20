@@ -965,6 +965,7 @@ function renderCollection(collection, availableCollections, filterActive) {
   const actions = createNode('div', 'collection-actions');
 
   if (!collection.isUncategorized) {
+    const opensDirectlyInCurrentWindow = canOpenSavedCollectionInCurrentWindow(collection);
     const openButton = createNode('button', 'action-button', isFullyOpen ? 'Go to' : 'Open');
     openButton.type = 'button';
     openButton.addEventListener('click', async () => {
@@ -989,6 +990,21 @@ function renderCollection(collection, availableCollections, filterActive) {
             type: 'sidebar:focusCollection',
             currentWindowId,
             collectionId: collection.id
+          });
+          openCollectionMenuId = null;
+          openGroupDeleteMenuKey = null;
+          renderSnapshot(snapshot);
+        });
+        return;
+      }
+
+      if (opensDirectlyInCurrentWindow) {
+        await runAction('Opening collection in the current window…', async () => {
+          const snapshot = await sendMessage({
+            type: 'sidebar:openCollection',
+            currentWindowId,
+            collectionId: collection.id,
+            targetMode: 'append'
           });
           openCollectionMenuId = null;
           openGroupDeleteMenuKey = null;
@@ -1084,7 +1100,10 @@ function renderCollection(collection, availableCollections, filterActive) {
   body.appendChild(actions);
 
   const openMenu = createNode('div', 'open-menu');
-  openMenu.classList.toggle('hidden', hasLiveGroups || openCollectionMenuId !== collection.id);
+  openMenu.classList.toggle(
+    'hidden',
+    hasLiveGroups || canOpenSavedCollectionInCurrentWindow(collection) || openCollectionMenuId !== collection.id
+  );
 
   const newWindowButton = createNode('button', 'action-button', 'New Window');
   newWindowButton.type = 'button';
@@ -1204,6 +1223,14 @@ function renderEmptyState(message) {
   const node = createNode('section', 'empty-state');
   node.textContent = message;
   return node;
+}
+
+function canOpenSavedCollectionInCurrentWindow(collection) {
+  return Boolean(
+    lastSnapshot?.currentWindowHasOnlyEmptyNewTab &&
+    collection.liveGroupCount === 0 &&
+    collection.snapshotGroupCount > 0
+  );
 }
 
 function renderCollectionSection(title, collections, availableCollections, filterActive) {

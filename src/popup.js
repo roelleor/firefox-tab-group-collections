@@ -158,6 +158,22 @@ async function openSavedCollection(collection, currentWindowId, targetMode) {
   window.close();
 }
 
+function canOpenSavedCollectionInCurrentWindow(collection) {
+  return Boolean(
+    lastSnapshot?.currentWindowHasOnlyEmptyNewTab &&
+    collection.liveGroupCount === 0 &&
+    collection.snapshotGroupCount > 0
+  );
+}
+
+function shouldShowOpenChoices(collection) {
+  return (
+    collection.liveGroupCount === 0 &&
+    collection.snapshotGroupCount > 0 &&
+    !canOpenSavedCollectionInCurrentWindow(collection)
+  );
+}
+
 function renderSection(title, collections, currentWindowId) {
   const section = createNode('section', 'popup-section');
   section.appendChild(createNode('h2', 'popup-section-title', title));
@@ -171,7 +187,7 @@ function renderSection(title, collections, currentWindowId) {
     button.disabled = collection.liveGroupCount === 0 && collection.snapshotGroupCount === 0;
     const label = createNode('span', 'collection-link-label', collection.name);
     button.appendChild(label);
-    if (collection.liveGroupCount === 0 && collection.snapshotGroupCount > 0) {
+    if (shouldShowOpenChoices(collection)) {
       const chevron = createNode('span', 'collection-link-chevron');
       chevron.appendChild(createIcon(openChoiceCollectionId === collection.id ? 'chevronDown' : 'chevronRight'));
       button.appendChild(chevron);
@@ -179,7 +195,7 @@ function renderSection(title, collections, currentWindowId) {
     button.addEventListener('click', async () => {
       try {
         clearError();
-        if (collection.liveGroupCount === 0 && collection.snapshotGroupCount > 0) {
+        if (shouldShowOpenChoices(collection)) {
           openChoiceCollectionId = openChoiceCollectionId === collection.id ? null : collection.id;
           renderSnapshot(lastSnapshot, lastWindowId);
           return;
@@ -191,7 +207,7 @@ function renderSection(title, collections, currentWindowId) {
     });
     item.appendChild(button);
 
-    if (collection.liveGroupCount === 0 && collection.snapshotGroupCount > 0) {
+    if (shouldShowOpenChoices(collection)) {
       const openChoices = createNode('div', 'open-choices');
       openChoices.classList.toggle('hidden', openChoiceCollectionId !== collection.id);
 

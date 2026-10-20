@@ -106,6 +106,22 @@
     return trimmed;
   }
 
+  function isEmptyNewTabUrl(url) {
+    const normalized = typeof url === 'string' ? url.trim().toLowerCase() : '';
+    return normalized === 'about:blank' || normalized === 'about:newtab';
+  }
+
+  function isEmptyNewTab(tab, noneGroupId = -1) {
+    if (!tab || tab.groupId !== noneGroupId) {
+      return false;
+    }
+
+    const url = typeof tab.pendingUrl === 'string' && tab.pendingUrl.trim()
+      ? tab.pendingUrl
+      : tab.url;
+    return isEmptyNewTabUrl(url);
+  }
+
   function cloneSnapshotGroup(group) {
     return {
       id: typeof group?.id === 'string' ? group.id : '',
@@ -287,6 +303,8 @@
     pickNextGroupColor,
     getSnapshotUrl,
     getRestorableUrl,
+    isEmptyNewTabUrl,
+    isEmptyNewTab,
     cloneSnapshotGroup,
     insertSnapshotGroup,
     mergeSnapshotGroupsWithLiveOrder,
