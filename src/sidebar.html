@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Tab Group Collections</title>
     <link rel="stylesheet" href="sidebar.css">
+    <link rel="stylesheet" href="review.css">
   </head>
   <body>
     <main class="app">
@@ -47,11 +48,30 @@
           </div>
         </div>
       </section>
+      <section class="review-card hidden" data-review-card aria-labelledby="review-card-title">
+        <button class="review-card-close" data-review-dismiss type="button" aria-label="Dismiss review invitation" title="Dismiss review invitation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m18 6-12 12M6 6l12 12"></path></svg>
+        </button>
+        <h2 id="review-card-title">Finding Collections useful?</h2>
+        <p>Leave a review to share your experience.</p>
+        <div class="review-card-actions">
+          <a class="review-card-link" data-review-link href="https://addons.mozilla.org/en-US/firefox/addon/tab-group-collections/reviews/" target="_blank" rel="noopener noreferrer">
+            Leave a review
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 17 17 7M7 7h10v10"></path></svg>
+          </a>
+          <button class="review-card-dismiss" data-review-dismiss type="button">Not now</button>
+        </div>
+      </section>
       <section class="error-banner hidden" id="error-banner" aria-live="assertive"></section>
       <section class="collections" id="collections"></section>
+      <footer class="review-footer">
+        Finding Collections useful? <a data-review-link href="https://addons.mozilla.org/en-US/firefox/addon/tab-group-collections/reviews/" target="_blank" rel="noopener noreferrer">Leave a review.</a>
+      </footer>
     </main>
     <script src="shared.js"></script>
     <script src="ui-theme.js"></script>
+    <script src="review-prompt.js"></script>
+    <script src="review-ui.js"></script>
     <script src="sidebar.js"></script>
   </body>
 </html>

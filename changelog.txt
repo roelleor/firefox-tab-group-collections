@@ -2,6 +2,24 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+1.5.0 - 2026-10-22
+
+Added
+- Quick popup search for collection and tab group names, with automatic focus, highlighted matches, and matching group previews. Individual tab titles and URLs are not searched.
+- Up and Down navigate popup results and expanded New Window and Append Here choices. Right opens saved collection choices, Left closes them, and Enter toggles them on the collection row. Down enters results from search. Escape clears the search or closes the popup.
+- Quiet review links in the quick popup and sidebar, plus a dismissible sidebar invitation after sustained use. Showing or dismissing the invitation pauses it for three months; opening any review link pauses it for a year.
+
+Changed
+- Compact popup header places the Side panel button beside the title, leaving room for search without increasing the header height.
+- Saved collections open directly in the current window when it contains only an empty new tab.
+
+Fixed
+- Quick popup width remains fixed while typing, filtering, and expanding collection opening choices; long no-match messages wrap within the panel.
+- Groups created by splitting or duplicating native Firefox groups retain separate identities and names during synchronization and reopening.
+- Repairing duplicate group identities preserves closed group snapshots and saved tab URLs rather than guessing ambiguous matches.
+- Keyboard focus is retained when collection opening choices appear, allowing Tab and Shift+Tab to reach New Window and Append Here.
+- Search receives focus reliably when the toolbar popup opens, without taking focus from another control.
+
 1.4.1 - 2026-04-20
 
 Fixed

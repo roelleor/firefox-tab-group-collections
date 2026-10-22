@@ -1,0 +1,129 @@
+.review-footer {
+  margin: 14px 0 0;
+  padding: 10px 2px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.review-footer a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+.review-card {
+  position: relative;
+  margin-top: 12px;
+  padding: 14px 38px 14px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.review-card.hidden {
+  display: none;
+}
+
+.review-card h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.review-card p {
+  margin: 4px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.review-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.review-card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--card-muted);
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.review-card-link svg {
+  width: 13px;
+  height: 13px;
+}
+
+.review-card-dismiss,
+.review-card-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.review-card-dismiss {
+  min-height: 30px;
+  padding: 4px 0;
+}
+
+.review-card-close {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border-radius: 5px;
+}
+
+.review-card-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.review-card-close:hover,
+.review-card-link:hover {
+  background: var(--card-muted);
+}
+
+.review-card-dismiss:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.review-footer a:focus-visible,
+.review-card a:focus-visible,
+.review-card button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (pointer: coarse) {
+  .review-footer a,
+  .review-card-link,
+  .review-card-dismiss,
+  .review-card-close {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}

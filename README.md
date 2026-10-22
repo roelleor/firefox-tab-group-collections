@@ -8,7 +8,26 @@ Firefox WebExtension that adds a collection layer on top of native Firefox tab g
 - Keeps collection membership in sync with live tab groups
 - Provides a sidebar for managing collections and groups
 - Supports renaming, pinning, moving, deleting, and reopening groups
-- Includes a compact popup for quick collection access
+- Includes a compact popup with search for collection and tab group names
+
+The popup focuses search when it opens and keeps a fixed width while filtering.
+Collection-name matches stay compact;
+group-name matches show the matching group beneath the collection. Individual
+tab titles and URLs are not searched. Use Tab to move between controls. Down
+from search enters the results; Up and Down move through collections and their
+expanded New Window and Append Here choices. Right opens those choices; Left
+closes them and returns focus to the collection. Enter on the collection toggles
+the choices; Enter on a choice opens the saved collection. Tab and Shift+Tab also
+move between the choices. Escape clears a query, then closes the popup when
+pressed again.
+
+Both panels include a quiet link to the extension's Mozilla Add-ons reviews page.
+The sidebar also offers a dismissible invitation after two weeks and successful
+collection actions on five distinct days. Showing or dismissing that card pauses
+it for three calendar months. Clicking any review link pauses it for a year;
+the permanent links remain available. The extension cannot detect whether a
+review was submitted. Reminder preferences are stored locally under a separate
+key, with at most five activity dates and no collection names or tab information.
 
 ## Project Files
 
@@ -16,6 +35,7 @@ Firefox WebExtension that adds a collection layer on top of native Firefox tab g
 - `src/sidebar.html`, `src/sidebar.css`, `src/sidebar.js`: main management UI
 - `src/popup.html`, `src/popup.css`, `src/popup.js`: quick-open popup
 - `src/shared.js`: shared collection/group logic used by background and UI
+- `src/review-*.js`, `src/review.css`: local review reminder timing, links, and presentation
 - `src/icons/`: extension icon assets
 - `build.sh`: packages the extension into `dist/tab-group-collections.zip`
 

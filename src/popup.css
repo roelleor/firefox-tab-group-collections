@@ -19,10 +19,12 @@
 html,
 body {
   margin: 0;
-  min-width: 280px;
 }
 
 body {
+  /* Firefox measures the body when sizing the native toolbar popup. */
+  width: 280px;
+  max-width: 100%;
   background: var(--bg);
   color: var(--text);
 }
@@ -48,13 +50,12 @@ body {
   padding: 12px;
 }
 
-.eyebrow {
-  margin: 0 0 6px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.popup-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 h1 {
@@ -75,16 +76,82 @@ h1 {
 }
 
 .panel-button {
-  margin-top: 10px;
-  min-height: 34px;
-  width: 100%;
-  padding: 8px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 4px 6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--card-muted);
   color: var(--accent);
   font-size: 12px;
-  font-weight: 600;
+  white-space: nowrap;
+}
+
+.panel-button .icon-svg {
+  width: 14px;
+  height: 14px;
+}
+
+.popup-search-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.popup-search-control:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.popup-search-control > .icon-svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+#popup-search {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+#popup-search::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.clear-search-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  min-height: 26px;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.clear-search-button:hover {
+  background: var(--card-muted);
+  color: var(--text);
 }
 
 .panel-button:hover,
@@ -102,6 +169,7 @@ h1 {
 
 .popup-error,
 .popup-empty {
+  overflow-wrap: anywhere;
   padding: 12px 14px;
   color: var(--muted);
 }
@@ -155,8 +223,30 @@ h1 {
   text-align: left;
 }
 
-.collection-link-label {
+.collection-link-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
+}
+
+.collection-link-label {
+  overflow-wrap: anywhere;
+}
+
+.collection-link-match {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-link mark {
+  border-radius: 2px;
+  background: rgba(36, 86, 70, 0.14);
+  color: var(--text);
 }
 
 .collection-link-chevron {
@@ -269,4 +359,30 @@ h1 {
 
 :root[data-theme="dark"] .popup-error {
   color: #ffb3b3;
+}
+
+:root[data-theme="dark"] .collection-link mark {
+  background: rgba(184, 201, 194, 0.18);
+}
+
+@media (pointer: coarse) {
+  .panel-button,
+  .clear-search-button,
+  .popup-search-control,
+  .collection-link,
+  .open-choice-button {
+    min-height: 44px;
+  }
+
+  .clear-search-button {
+    min-width: 44px;
+  }
+
+  .popup-title-row {
+    flex-wrap: wrap;
+  }
+
+  #popup-search {
+    font-size: 16px;
+  }
 }

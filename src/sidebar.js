@@ -167,12 +167,16 @@ async function ensureCurrentWindowId() {
   return currentWindowId;
 }
 
+/** Run a collection request and count successful user actions toward the optional review invitation. */
 async function sendMessage(payload) {
   const response = await browser.runtime.sendMessage(payload);
   if (response?.error) {
     throw new Error(response.error);
   }
 
+  if (payload.type.startsWith('sidebar:') && payload.type !== 'sidebar:getSnapshot') {
+    globalThis.TabGroupCollectionsReviewUi.recordActivity();
+  }
   return response;
 }
 
