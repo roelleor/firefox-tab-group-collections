@@ -2,6 +2,11 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+1.6.0 - 2026-10-22
+
+Added
+- Configurable Firefox keyboard shortcuts to open the quick panel and toggle the side panel. Assign keys in Add-ons → Manage Extension Shortcuts; neither command has a default shortcut.
+
 1.5.0 - 2026-10-22
 
 Added

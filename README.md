@@ -10,6 +10,13 @@ Firefox WebExtension that adds a collection layer on top of native Firefox tab g
 - Supports renaming, pinning, moving, deleting, and reopening groups
 - Includes a compact popup with search for collection and tab group names
 
+To open either panel with a keyboard shortcut while Firefox is active, go to
+**Add-ons → gear menu → Manage Extension Shortcuts** and assign shortcuts to
+**Open quick panel** and **Open side panel** under **Tab Group Collections**.
+Neither command has a shortcut assigned by default. For a temporary development
+installation, reload the extension in `about:debugging` after updating it to make
+the commands available.
+
 The popup focuses search when it opens and keeps a fixed width while filtering.
 Collection-name matches stay compact;
 group-name matches show the matching group beneath the collection. Individual
