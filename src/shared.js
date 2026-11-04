@@ -106,9 +106,10 @@
     return trimmed;
   }
 
+  /** Recognize Firefox's blank, new-tab, and home pages as replaceable window placeholders. */
   function isEmptyNewTabUrl(url) {
     const normalized = typeof url === 'string' ? url.trim().toLowerCase() : '';
-    return normalized === 'about:blank' || normalized === 'about:newtab';
+    return normalized === 'about:blank' || normalized === 'about:newtab' || normalized === 'about:home';
   }
 
   function isEmptyNewTab(tab, noneGroupId = -1) {

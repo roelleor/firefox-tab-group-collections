@@ -2,6 +2,12 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+Unreleased
+
+Fixed
+- Closing collections, deleting groups, and deleting collections with their groups no longer create additional saved copies in Firefox. Empty windows retain a blank tab.
+- Canceled close and delete actions preserve surviving groups. Interrupted collection closes restore partly closed groups through Firefox's undo history, with saved URL recovery when undo is unavailable.
+
 1.6.0 - 2026-10-22
 
 Added

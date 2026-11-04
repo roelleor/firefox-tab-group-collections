@@ -381,7 +381,7 @@ clearSearchButtonNode.addEventListener('click', () => {
   searchInputNode.focus();
 });
 
-/** Move through visible collection actions while retaining native text editing and Tab order. */
+/** Activate the first result with Enter from search, or navigate visible actions with the arrows. */
 function handlePopupKeydown(event) {
   // Candidate navigation and cancellation belong to the active input method.
   if (event.isComposing || event.keyCode === 229) {
@@ -408,7 +408,13 @@ function handlePopupKeydown(event) {
   const activeElement = document.activeElement;
   const index = buttons.indexOf(activeElement);
   const isSearchEntry = activeElement === searchInputNode || activeElement === document.body;
-  if (event.key === 'ArrowDown' && (isSearchEntry || index !== -1)) {
+  if (event.key === 'Enter' && isSearchEntry) {
+    event.preventDefault();
+    // Reuse the row's click action so saved collections either open directly or offer their choices.
+    const firstCollection = buttons.find(button => button.matches('.collection-link'));
+    firstCollection?.focus();
+    firstCollection?.click();
+  } else if (event.key === 'ArrowDown' && (isSearchEntry || index !== -1)) {
     event.preventDefault();
     buttons[Math.min(index + 1, buttons.length - 1)]?.focus();
   } else if (event.key === 'ArrowUp' && index !== -1) {

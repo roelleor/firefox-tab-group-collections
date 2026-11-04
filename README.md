@@ -21,12 +21,23 @@ The popup focuses search when it opens and keeps a fixed width while filtering.
 Collection-name matches stay compact;
 group-name matches show the matching group beneath the collection. Individual
 tab titles and URLs are not searched. Use Tab to move between controls. Down
-from search enters the results; Up and Down move through collections and their
-expanded New Window and Append Here choices. Right opens those choices; Left
-closes them and returns focus to the collection. Enter on the collection toggles
-the choices; Enter on a choice opens the saved collection. Tab and Shift+Tab also
-move between the choices. Escape clears a query, then closes the popup when
-pressed again.
+from search enters the results; Enter from search activates the first result.
+Up and Down move through collections and their expanded New Window and Append
+Here choices. Right opens those choices; Left
+closes them and returns focus to the collection. Enter on a collection performs
+its action: go to an open collection, restore its missing groups, or show opening
+choices for a saved collection. In a window with just one ungrouped blank tab or
+Firefox Home tab, saved collections open directly in that window from either
+panel, replacing the placeholder tab. Enter on a choice opens the saved
+collection. Tab and Shift+Tab also move between the choices. Escape clears a
+query, then closes the popup when pressed again.
+
+Closing a collection keeps its groups saved in the extension. Close and delete
+actions avoid creating additional Firefox saved groups. If an action empties a
+window, it leaves one blank tab open. A canceled Close restores tabs from a
+partly closed group using Firefox's undo history; if that history is unavailable,
+their URLs are kept in a separate recovery collection. Existing Firefox saved copies remain
+managed through Firefox's own controls.
 
 Both panels include a quiet link to the extension's Mozilla Add-ons reviews page.
 The sidebar also offers a dismissible invitation after two weeks and successful

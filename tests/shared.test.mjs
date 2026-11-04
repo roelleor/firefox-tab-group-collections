@@ -22,12 +22,17 @@ test('getRestorableUrl sanitizes unsupported and blank URLs', () => {
   assert.equal(Shared.getRestorableUrl(''), 'about:blank');
 });
 
-test('empty new tab helpers only match ungrouped blank or new-tab pages', () => {
+test('empty new tab helpers only match ungrouped blank, new-tab, or home pages', () => {
   assert.equal(Shared.isEmptyNewTabUrl(' about:blank '), true);
   assert.equal(Shared.isEmptyNewTabUrl('ABOUT:NEWTAB'), true);
+  assert.equal(Shared.isEmptyNewTabUrl('about:home'), true);
   assert.equal(Shared.isEmptyNewTabUrl('https://example.com'), false);
   assert.equal(Shared.isEmptyNewTab({ groupId: -1, url: 'about:newtab' }, -1), true);
   assert.equal(Shared.isEmptyNewTab({ groupId: 12, url: 'about:newtab' }, -1), false);
+  assert.equal(Shared.isEmptyNewTab({ groupId: -1, url: 'about:home' }, -1), true);
+  assert.equal(Shared.isEmptyNewTab({ groupId: 12, url: 'about:home' }, -1), false);
+  assert.equal(Shared.isEmptyNewTabUrl('about:preferences'), false);
+  assert.equal(Shared.isEmptyNewTab({ groupId: -1, url: 'about:home', pendingUrl: 'https://example.com' }, -1), false);
   assert.equal(
     Shared.isEmptyNewTab({ groupId: -1, url: 'about:blank', pendingUrl: 'https://example.com' }, -1),
     false,

@@ -964,10 +964,11 @@ function getOnlyEmptyNewTabInWindow(runtime, windowId) {
   return isEmptyNewTab(tabs[0], NONE_GROUP_ID) ? tabs[0] : null;
 }
 
-async function removeEmptyNewTabIfUnchanged(tabId) {
+/** Remove an unchanged placeholder, optionally requiring it to remain in its original window. */
+async function removeEmptyNewTabIfUnchanged(tabId, windowId = null) {
   try {
     const tab = await browser.tabs.get(tabId);
-    if (isEmptyNewTab(tab, NONE_GROUP_ID)) {
+    if (isEmptyNewTab(tab, NONE_GROUP_ID) && (windowId === null || tab.windowId === windowId)) {
       await browser.tabs.remove(tab.id);
     }
   } catch (error) {
@@ -1612,6 +1613,130 @@ async function focusCollection(collectionId, currentWindowId) {
   });
 }
 
+/**
+ * Close tracked tabs individually so Firefox does not save whole native groups.
+ * Keep an empty tab in windows that would otherwise close, and stop immediately
+ * if a page cancels closure. Surviving tabs retain their native group and identity.
+ * An optional recovery callback receives closed tab IDs and unambiguous undo sessions on failure.
+ */
+async function closeTabsWithoutSavingGroups(tabIds, recoverClosedTabs = null) {
+  const targetIds = new Set(tabIds);
+  const closedIds = new Set();
+  const closedSessions = new Map();
+  const placeholders = [];
+
+  try {
+    for (const tabId of targetIds) {
+      // Recheck placement after each prompt: users can move tabs or close a
+      // window's other tabs while a close is pending. Hidden tabs cannot keep it open.
+      let tabs = await browser.tabs.query({});
+      const targetTab = tabs.find(tab => tab.id === tabId);
+      if (!targetTab) {
+        continue;
+      }
+      const windowId = targetTab.windowId;
+      const windowTabs = tabs.filter(tab => tab.windowId === windowId && !tab.hidden);
+      if (windowTabs.every(tab => targetIds.has(tab.id))) {
+        // Closing a window can save its groups too. Leave a blank tab outside
+        // those groups so both explicit deletion and normal Close avoid that path.
+        const placeholder = await browser.tabs.create({ windowId, url: 'about:blank', active: false });
+        placeholders.push(placeholder);
+        if (placeholder.groupId !== NONE_GROUP_ID) {
+          await browser.tabs.ungroup([placeholder.id]);
+        }
+      }
+      // A single ID uses Firefox's individual-tab close path. A batch removal
+      // instead saves any complete groups included in the batch.
+      const previousSessionIds = recoverClosedTabs
+        ? new Set((await browser.sessions.getRecentlyClosed({})).map(session => session.tab?.sessionId))
+        : null;
+      await browser.tabs.remove(tabId);
+      tabs = await browser.tabs.query({});
+      if (tabs.some(tab => tab.id === tabId)) {
+        throw new Error('Closing tabs was canceled. The remaining groups were kept.');
+      }
+      closedIds.add(tabId);
+      if (previousSessionIds) {
+        const candidates = (await browser.sessions.getRecentlyClosed({})).filter(({ tab }) => (
+          tab && !previousSessionIds.has(tab.sessionId) && tab.windowId === targetTab.windowId &&
+          tab.index === targetTab.index && tab.url === targetTab.url
+        ));
+        // Never restore an ambiguous history entry: another tab may have closed
+        // while the user was responding to a prompt.
+        if (candidates.length === 1) closedSessions.set(tabId, candidates[0].tab.sessionId);
+      }
+    }
+  } catch (error) {
+    if (recoverClosedTabs && closedIds.size) {
+      await recoverClosedTabs(closedIds, closedSessions);
+    }
+    throw error;
+  } finally {
+    // A canceled close (or a newly opened tab) can make our placeholder redundant.
+    // Remove only unchanged blank placeholders, keeping an emptied window open.
+    for (const placeholder of placeholders) {
+      try {
+        const windowTabs = await browser.tabs.query({ windowId: placeholder.windowId });
+        if (windowTabs.some(tab => tab.id === placeholder.id) && windowTabs.some(tab => tab.id !== placeholder.id && !tab.hidden)) {
+          await removeEmptyNewTabIfUnchanged(placeholder.id, placeholder.windowId);
+        }
+      } catch (error) {
+        console.debug('Unable to clean up the empty tab after closing groups.', error);
+      }
+    }
+  }
+}
+
+/** Restore exact Firefox tab sessions after an interrupted Close; retain unrecoverable URLs separately. */
+async function recoverClosedCollectionTabs(entries, closedIds, closedSessions) {
+  const unrestoredIds = new Set(closedIds);
+  const initialTabs = await browser.tabs.query({});
+  const recoverableIds = new Set(entries.flatMap(entry => {
+    const originalIds = new Set(entry.tabs.map(tab => tab.id));
+    const hasSurvivor = initialTabs.some(tab => originalIds.has(tab.id) && tab.groupId === entry.group.id);
+    // Firefox can rejoin a surviving native group during undo. If the entire
+    // group already closed, leave its saved snapshot intact instead of reopening
+    // loose tabs alongside that same closed snapshot.
+    return hasSurvivor ? entry.tabs.map(tab => tab.id) : [];
+  }));
+  // Consecutive removals can share a closing index. Undo in reverse order to
+  // reconstruct the original tab sequence within the surviving group.
+  for (const [tabId, sessionId] of [...closedSessions].reverse()) {
+    if (!recoverableIds.has(tabId)) continue;
+    try {
+      await browser.sessions.restore(sessionId);
+      unrestoredIds.delete(tabId);
+    } catch (error) {
+      console.debug('Unable to restore a tab after an interrupted Close.', error);
+    }
+  }
+  const recoveryGroups = [];
+  const tabs = await browser.tabs.query({});
+  for (const entry of entries) {
+    const closedTabs = entry.tabs.filter(tab => unrestoredIds.has(tab.id));
+    if (!closedTabs.length) {
+      continue;
+    }
+    const memberships = await Promise.all(tabs.map(tab => getTabMembership(tab.id)));
+    const hasSurvivor = tabs.some((tab, index) => tab.groupId !== NONE_GROUP_ID && sameMembership(memberships[index], entry.membership));
+    // A wholly closed group is already retained in its collection snapshot.
+    // For a partly open group, sync will record its surviving tabs. Keep the
+    // closed URLs in a separate saved group rather than silently replacing a
+    // file/browser page or losing its original URL during that sync.
+    if (hasSurvivor) {
+      recoveryGroups.push({ ...buildSnapshotGroupFromEntry({ ...entry, tabs: closedTabs }), id: createId('group') });
+    }
+  }
+  if (recoveryGroups.length) {
+    const state = await loadState();
+    const collection = createCollectionRecord(state, createId('collection'), 'Recovered tabs from interrupted Close');
+    setCollectionSnapshot(collection, recoveryGroups);
+    await saveState(state);
+    throw new Error('Closing was interrupted. Tabs that could not be reopened were kept in the “Recovered tabs from interrupted Close” collection.');
+  }
+}
+
+/** Close the collection's live tabs while keeping its saved groups available to reopen. */
 async function closeCollection(collectionId, currentWindowId) {
   if (!hasRequiredApis()) {
     throw new Error('Tab group APIs are unavailable in this Firefox build.');
@@ -1638,7 +1763,7 @@ async function closeCollection(collectionId, currentWindowId) {
       throw new Error('This collection is not currently open.');
     }
 
-    await browser.tabs.remove(tabIds);
+    await closeTabsWithoutSavingGroups(tabIds, (closedIds, sessions) => recoverClosedCollectionTabs(liveEntries, closedIds, sessions));
 
     const refreshedState = await syncCollections();
     return buildSidebarSnapshot(refreshedState, currentWindowId);
@@ -1691,6 +1816,7 @@ async function removeGroupFromCollection(sourceKind, groupId, snapshotGroupId, c
   }, currentWindowId);
 }
 
+/** Delete a saved group, or close a live group before removing its saved record. */
 async function deleteGroup(sourceKind, groupId, snapshotGroupId, collectionId, currentWindowId) {
   if (!hasRequiredApis()) {
     throw new Error('Tab group APIs are unavailable in this Firefox build.');
@@ -1710,17 +1836,17 @@ async function deleteGroup(sourceKind, groupId, snapshotGroupId, collectionId, c
         throw new Error('Tab group not found.');
       }
 
+      const tabIds = entry.tabs.map((tab) => tab.id);
+      await closeTabsWithoutSavingGroups(tabIds);
+
+      // Keep the saved record until every requested tab has closed. A canceled
+      // prompt or failed close must leave the surviving group in its collection.
       const sourceCollection = state.collections[entry.membership.collectionId];
       if (sourceCollection) {
         freezeAutoNamedCollection(state, sourceCollection.id);
         const { groups } = removeSnapshotGroup(sourceCollection.snapshot, entry.membership.groupKey);
         setCollectionSnapshot(sourceCollection, groups);
         await saveState(state);
-      }
-
-      const tabIds = entry.tabs.map((tab) => tab.id);
-      if (tabIds.length) {
-        await browser.tabs.remove(tabIds);
       }
 
       const refreshedState = await syncCollections();
@@ -2085,6 +2211,7 @@ async function placeSavedGroup(sourceCollectionId, snapshotGroupId, placement, c
   });
 }
 
+/** Delete collection metadata only, or first close its tabs without saving native copies. */
 async function deleteCollection(collectionId, mode, currentWindowId) {
   if (!hasRequiredApis()) {
     throw new Error('Tab group APIs are unavailable in this Firefox build.');
@@ -2109,7 +2236,7 @@ async function deleteCollection(collectionId, mode, currentWindowId) {
     if (mode === 'collection-and-groups') {
       const tabIds = liveEntries.flatMap((entry) => entry.tabs.map((tab) => tab.id));
       if (tabIds.length) {
-        await browser.tabs.remove(tabIds);
+        await closeTabsWithoutSavingGroups(tabIds);
       }
       delete state.collections[collectionId];
       await saveState(state);

@@ -184,7 +184,7 @@ async function launchExtension(t, { toolbarPopup = false, classicScrollbars = fa
     try {
       if (driver) await driver.quit();
     } finally {
-      await fs.rm(profileDir, { recursive: true, force: true });
+      await fs.rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -420,7 +420,7 @@ test('popup searches collection and live or saved group names without changing s
   assert.equal(matches[1].highlight, 'design');
   assert.equal(matches[2].detail, 'Group: Design archive');
 
-  for (const key of ['ArrowDown', 'Escape']) {
+  for (const key of ['ArrowDown', 'Enter', 'Escape']) {
     const composing = await driver.executeScript(function (key) {
       const input = document.getElementById('popup-search');
       const event = new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true, cancelable: true });
@@ -445,6 +445,9 @@ test('popup searches collection and live or saved group names without changing s
   await input.sendKeys('tab title only');
   assert.deepEqual(await rows(), []);
   assert.match(await driver.findElement(By.id('popup-empty')).getText(), /No collections or group names match/);
+  await input.sendKeys(Key.ENTER);
+  assert.equal(await driver.executeScript(() => document.activeElement.id), 'popup-search',
+    'Enter without any results should leave search focused.');
   await input.clear();
   await input.sendKeys('tab-url-only');
   assert.deepEqual(await rows(), [], 'A tab URL must not make its collection match.');
@@ -455,7 +458,7 @@ test('popup searches collection and live or saved group names without changing s
   assert.deepEqual(storedAfter, storedBefore, 'Searching and clearing must not change stored data.');
 
   await input.sendKeys('archive');
-  await input.sendKeys(Key.ARROW_DOWN, Key.ENTER);
+  await input.sendKeys(Key.ENTER);
   assert.equal(await driver.findElement(By.css('.open-choices:not(.hidden)')).isDisplayed(), true);
   assert.equal(await driver.executeScript(() => document.activeElement.classList.contains('collection-link')), true);
   await driver.switchTo().activeElement().sendKeys(Key.TAB);
@@ -555,6 +558,11 @@ test('popup arrows enter results from search and navigate saved collection choic
   const press = async (...keys) => (await driver.switchTo().activeElement()).sendKeys(...keys);
 
   assert.equal(await driver.executeScript(() => document.activeElement.id), 'popup-search');
+  await press(Key.ENTER);
+  assert.equal(await driver.findElement(By.css('.collection-link')).getAttribute('aria-expanded'), 'true',
+    'Enter from search should activate the first collection and reveal its opening choices.');
+  assert.equal(await driver.executeScript(() => document.activeElement.dataset.collectionId), collectionId);
+  await press(Key.ARROW_LEFT, Key.ARROW_UP);
   await press(Key.ARROW_DOWN);
   assert.equal(await driver.executeScript(() => document.activeElement.dataset.collectionId), collectionId,
     'Down should enter results immediately from an empty search.');
@@ -619,6 +627,56 @@ test('popup arrows enter results from search and navigate saved collection choic
   await press(Key.ARROW_DOWN);
   assert.equal(await driver.executeScript(() => document.activeElement.dataset.collectionId), collectionId);
 });
+
+for (const url of ['about:home', 'about:newtab', 'about:blank']) {
+  test(`quick panel Enter opens a saved collection into a window containing only ${url}`, async t => {
+    const { driver } = await launchExtension(t, { toolbarPopup: true });
+    const currentWindowId = await getCurrentWindowId(driver);
+    const created = await sendRuntimeMessage(driver, {
+      type: 'sidebar:createCollection', currentWindowId, name: 'Saved quick open'
+    });
+    const collectionId = created.createdCollectionId;
+    await sendRuntimeMessage(driver, {
+      type: 'sidebar:createGroup', currentWindowId, collectionId, title: 'Restored group'
+    });
+    await sendRuntimeMessage(driver, { type: 'sidebar:closeCollection', currentWindowId, collectionId });
+    const originalHandle = await driver.getWindowHandle();
+    const originalHandles = await driver.getAllWindowHandles();
+    const windowId = await extensionCall(driver, async () => (await browser.windows.create({})).id);
+    const newHandle = await driver.wait(async () => (await driver.getAllWindowHandles())
+      .find(handle => !originalHandles.includes(handle)), 5000);
+    await driver.switchTo().window(newHandle);
+    // WebExtensions cannot navigate to about:home; WebDriver can load Firefox's own page.
+    await driver.get(url);
+    await driver.switchTo().window(originalHandle);
+    const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId: windowId });
+    assert.equal(snapshot.currentWindowHasOnlyEmptyNewTab, true,
+      'Both panels must recognize a fresh window as available for direct opening.');
+    const windowsBefore = await extensionCall(driver, async () => (await browser.windows.getAll()).length);
+    await extensionCall(driver, async windowId => {
+      await browser.windows.update(windowId, { focused: true });
+      await browser.browserAction.openPopup({ windowId });
+    }, windowId);
+    await driver.wait(async () => extensionCall(driver, async () => (
+      browser.extension.getViews({ type: 'popup' })[0]?.document.querySelector('.collection-link') != null
+    )), 10000);
+    await extensionCall(driver, async () => {
+      const view = browser.extension.getViews({ type: 'popup' })[0];
+      const search = view.document.getElementById('popup-search');
+      search.focus();
+      search.dispatchEvent(new view.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    });
+    await driver.wait(async () => {
+      const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId: windowId });
+      return snapshot.collections.find(collection => collection.id === collectionId)?.liveGroupCount === 1;
+    }, 10000, 'Enter from search should reopen the collection directly.');
+    const tabs = await extensionCall(driver, async windowId => browser.tabs.query({ windowId }), windowId);
+    assert.equal(tabs.length, 1, 'The empty placeholder tab should be removed after restoring the group.');
+    assert.notEqual(tabs[0].groupId, -1, 'The restored tab should belong to the saved group.');
+    assert.equal(await extensionCall(driver, async () => (await browser.windows.getAll()).length), windowsBefore,
+      'Opening into the fresh window must not create another window.');
+  });
+}
 
 test('toolbar popup restores focus and saved collections can be appended using only Tab and Enter', async (t) => {
   const { driver, extensionBaseUrl } = await launchExtension(t, { toolbarPopup: true });
@@ -773,4 +831,240 @@ test('sync repairs an already-collided many-group collection without extra sideb
   assert.equal(new Set(collection.groups.map(group => group.snapshotGroupId)).size, 5);
   assert.equal(new Set(collection.groups.map(group => group.runtimeGroupId)).size, 5);
   await assertRenderedGroupTitles(driver, titles);
+});
+
+/** Inspect Firefox's saved groups only in the disposable browser, outside extension privileges. */
+async function getNativeSavedGroups(driver, { flush = false } = {}) {
+  await driver.setContext('chrome');
+  try {
+    return await driver.executeAsyncScript(function (flush, done) {
+      const { SessionStore } = ChromeUtils.importESModule('moz-src:///browser/components/sessionstore/SessionStore.sys.mjs');
+      const { TabStateFlusher } = ChromeUtils.importESModule('moz-src:///browser/components/sessionstore/TabStateFlusher.sys.mjs');
+      const browsers = [...Services.wm.getEnumerator('navigator:browser')]
+        .flatMap(win => [...win.gBrowser.tabs].map(tab => tab.linkedBrowser));
+      const ready = flush ? Promise.all(browsers.map(browser => TabStateFlusher.flush(browser))) : Promise.resolve();
+      ready.then(() => done(SessionStore.getSavedTabGroups()), error => done({ error: String(error) }));
+    }, flush);
+  } finally {
+    await driver.setContext('content');
+  }
+}
+
+/** Create a populated native group and optionally put it alone in another browser window. */
+async function createClosureFixture(t, { entireWindow = false } = {}) {
+  const { driver } = await launchExtension(t);
+  const server = createServer((request, response) => response.end('<title>Game page</title>'));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const currentWindowId = await getCurrentWindowId(driver);
+  const created = await sendRuntimeMessage(driver, {
+    type: 'sidebar:createCollection', currentWindowId, name: 'Games'
+  });
+  const collectionId = created.createdCollectionId;
+  const snapshot = await sendRuntimeMessage(driver, {
+    type: 'sidebar:createGroup', currentWindowId, collectionId, title: 'Wed games'
+  });
+  const group = snapshot.collections.find(c => c.id === collectionId).groups[0];
+  const targetWindowId = await extensionCall(driver, async (groupId, baseUrl, entireWindow) => {
+    const [first] = await browser.tabs.query({ groupId });
+    await browser.tabs.update(first.id, { url: baseUrl + '/one' });
+    const second = await browser.tabs.create({ url: baseUrl + '/two', active: false });
+    await browser.tabs.group({ groupId, tabIds: [second.id] });
+    if (!entireWindow) return first.windowId;
+    const window = await browser.windows.create({ url: 'about:blank' });
+    await browser.tabGroups.move(groupId, { windowId: window.id, index: -1 });
+    const seed = (await browser.tabs.query({ windowId: window.id })).find(tab => tab.groupId === -1);
+    await browser.tabs.remove(seed.id);
+    return window.id;
+  }, group.runtimeGroupId, baseUrl, entireWindow);
+  const ready = async (expectedUrls = []) => {
+    await driver.wait(async () => extensionCall(driver, async expectedUrls => {
+      const tabs = await browser.tabs.query({});
+      const urls = tabs.filter(tab => tab.groupId !== -1).map(tab => tab.url);
+      return tabs.every(tab => tab.groupId === -1 || tab.status === 'complete') &&
+        expectedUrls.every(url => urls.includes(url));
+    }, expectedUrls), 10000);
+    await getNativeSavedGroups(driver, { flush: true });
+  };
+  const urls = [baseUrl + '/one', baseUrl + '/two'];
+  await ready(urls);
+  await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+  return { driver, currentWindowId, targetWindowId, collectionId, group, ready, urls };
+}
+
+for (const entireWindow of [false, true]) {
+  for (const action of ['closeCollection', 'deleteGroup', 'deleteCollection']) {
+    test(`${action} does not save native Firefox copies${entireWindow ? ' when the group fills its window' : ''}`, async t => {
+      const f = await createClosureFixture(t, { entireWindow });
+      const { driver, currentWindowId, targetWindowId, collectionId, group } = f;
+      const cycles = action === 'closeCollection' ? 3 : 1;
+      for (let cycle = 0; cycle < cycles; cycle++) {
+        const snapshot = await sendRuntimeMessage(driver, {
+          type: `sidebar:${action}`, currentWindowId, collectionId,
+          sourceKind: 'live', groupId: group.runtimeGroupId, mode: 'collection-and-groups'
+        });
+        assert.deepEqual(await getNativeSavedGroups(driver), [], 'Closing must not populate Firefox saved groups.');
+        const collection = snapshot.collections.find(c => c.id === collectionId);
+        if (action === 'closeCollection') {
+          assert.equal(collection.liveGroupCount, 0);
+          assert.equal(collection.snapshotGroupCount, 1);
+          assert.equal(collection.snapshotTabCount, 2);
+        } else if (action === 'deleteGroup') {
+          assert.equal(collection.snapshotGroupCount, 0);
+        } else {
+          assert.equal(collection, undefined);
+        }
+        if (entireWindow) {
+          const tabs = await extensionCall(driver, async windowId => browser.tabs.query({ windowId }), targetWindowId);
+          assert.equal(tabs.length, 1, 'A placeholder should keep the emptied window available.');
+          assert.equal(tabs[0].groupId, -1);
+          assert.equal(tabs[0].url, 'about:blank');
+        }
+        if (cycle < cycles - 1) {
+          await sendRuntimeMessage(driver, { type: 'sidebar:openCollection', currentWindowId: targetWindowId, collectionId, targetMode: 'append' });
+          await f.ready(f.urls);
+        }
+      }
+    });
+  }
+}
+
+
+for (const action of ['deleteGroup', 'closeCollection']) {
+  test(`${action} preserves its group when Firefox cancels a tab closure`, async t => {
+    const f = await createClosureFixture(t);
+    const { driver, currentWindowId, collectionId, group } = f;
+    const tabsBefore = await extensionCall(driver, async id => browser.tabs.query({ groupId: id }), group.runtimeGroupId);
+    const canceledTabId = tabsBefore[action === 'closeCollection' ? 1 : 0].id;
+    // Simulate the tabs.remove result after a canceled beforeunload prompt.
+    // All other closures, saved sessions, restoration, and synchronization use Firefox itself.
+    await extensionCall(driver, async tabId => {
+      const bg = browser.extension.getBackgroundPage();
+      bg.originalCloseForTest = bg.browser.tabs.remove;
+      bg.browser.tabs.remove = async id => {
+        if (id !== tabId) await bg.originalCloseForTest(id);
+      };
+    }, canceledTabId);
+    let response;
+    try {
+      response = await extensionCall(driver, async message => browser.runtime.sendMessage(message), {
+        type: `sidebar:${action}`, currentWindowId, collectionId, sourceKind: 'live', groupId: group.runtimeGroupId
+      });
+    } finally {
+      await extensionCall(driver, async () => {
+        const bg = browser.extension.getBackgroundPage();
+        bg.browser.tabs.remove = bg.originalCloseForTest;
+      });
+    }
+    assert.match(response.error || '', /cancel/i);
+    await f.ready(tabsBefore.map(tab => tab.url));
+    const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+    const collection = snapshot.collections.find(c => c.id === collectionId);
+    assert.equal(collection.liveGroupCount, 1);
+    assert.equal(collection.snapshotTabCount, 2);
+    assert.equal(collection.groups[0].snapshotGroupId, group.snapshotGroupId);
+    const tabsAfter = await extensionCall(driver, async id => browser.tabs.query({ groupId: id }), collection.groups[0].runtimeGroupId);
+    assert.deepEqual(tabsAfter.map(tab => tab.url), tabsBefore.map(tab => tab.url));
+    assert.deepEqual(await getNativeSavedGroups(driver), []);
+  });
+}
+
+test('closing all visible group tabs preserves a hidden unrelated tab without saving the group', async t => {
+  const f = await createClosureFixture(t, { entireWindow: true });
+  const { driver, currentWindowId, targetWindowId, collectionId } = f;
+  await driver.setContext('chrome');
+  try {
+    await driver.executeScript(function () {
+      const win = [...Services.wm.getEnumerator('navigator:browser')]
+        .find(win => [...win.gBrowser.tabGroups].some(group => group.label === 'Wed games'));
+      const hidden = win.gBrowser.addTrustedTab('about:blank', { inBackground: true });
+      win.gBrowser.hideTab(hidden);
+    });
+  } finally { await driver.setContext('content'); }
+  const hiddenTabs = await extensionCall(driver, async windowId => (await browser.tabs.query({ windowId })).filter(tab => tab.hidden), targetWindowId);
+  assert.equal(hiddenTabs.length, 1);
+  await sendRuntimeMessage(driver, { type: 'sidebar:closeCollection', currentWindowId, collectionId });
+  const tabs = await extensionCall(driver, async windowId => browser.tabs.query({ windowId }), targetWindowId);
+  assert.equal(tabs.some(tab => tab.id === hiddenTabs[0].id), true);
+  assert.equal(tabs.filter(tab => !tab.hidden).length, 1);
+  assert.equal(tabs.find(tab => !tab.hidden).groupId, -1);
+  assert.deepEqual(await getNativeSavedGroups(driver), []);
+});
+
+test('a canceled Close keeps completed groups saved without reopening loose duplicates', async t => {
+  const f = await createClosureFixture(t);
+  const { driver, currentWindowId, collectionId } = f;
+  const created = await sendRuntimeMessage(driver, { type: 'sidebar:createGroup', currentWindowId, collectionId, title: 'Still open' });
+  const lastGroup = created.collections.find(c => c.id === collectionId).groups.find(g => g.title === 'Still open');
+  await extensionCall(driver, async id => {
+    const bg = browser.extension.getBackgroundPage();
+    const [tab] = await browser.tabs.query({ groupId: id });
+    bg.originalCloseForTest = bg.browser.tabs.remove;
+    bg.browser.tabs.remove = async id => {
+      if (id !== tab.id) await bg.originalCloseForTest(id);
+    };
+  }, lastGroup.runtimeGroupId);
+  let response;
+  try {
+    response = await extensionCall(driver, async message => browser.runtime.sendMessage(message), { type: 'sidebar:closeCollection', currentWindowId, collectionId });
+  } finally {
+    await extensionCall(driver, async () => {
+      const bg = browser.extension.getBackgroundPage();
+      bg.browser.tabs.remove = bg.originalCloseForTest;
+    });
+  }
+  assert.match(response.error || '', /cancel/i);
+  await f.ready();
+  const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+  const collection = snapshot.collections.find(c => c.id === collectionId);
+  assert.equal(collection.liveGroupCount, 1);
+  assert.equal(collection.snapshotTabCount, 3);
+  assert.deepEqual(collection.groups.map(g => [g.title, g.kind]), [['Wed games', 'snapshot'], ['Still open', 'live']]);
+  assert.equal((await extensionCall(driver, async () => browser.tabs.query({}))).filter(t => t.url.startsWith('http://127.0.0.1:')).length, 0);
+  const reopened = await sendRuntimeMessage(driver, { type: 'sidebar:openCollection', currentWindowId, collectionId, targetMode: 'append' });
+  assert.equal(reopened.collections.find(c => c.id === collectionId).liveGroupCount, 2);
+  await f.ready(f.urls);
+  assert.equal((await extensionCall(driver, async () => browser.tabs.query({}))).filter(t => t.url.startsWith('http://127.0.0.1:')).length, 2);
+  assert.deepEqual(await getNativeSavedGroups(driver), []);
+});
+
+test('a partly canceled full-window Close restores session tabs in their original order', async t => {
+  const f = await createClosureFixture(t, { entireWindow: true });
+  const { driver, currentWindowId, collectionId, group } = f;
+  await extensionCall(driver, async groupId => {
+    const tabs = await browser.tabs.query({ groupId });
+    const third = await browser.tabs.create({ windowId: tabs[0].windowId, url: tabs[0].url.replace('/one', '/three'), active: false });
+    await browser.tabs.group({ groupId, tabIds: [third.id] });
+    return browser.tabs.query({ groupId });
+  }, group.runtimeGroupId);
+  await driver.wait(async () => extensionCall(driver, async groupId => (
+    await browser.tabs.query({ groupId })
+  ).every(tab => tab.url.startsWith('http://127.0.0.1:') && tab.status === 'complete'), group.runtimeGroupId), 10000);
+  await f.ready();
+  const tabsBefore = await extensionCall(driver, async groupId => browser.tabs.query({ groupId }), group.runtimeGroupId);
+  await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+  await extensionCall(driver, async tabId => {
+    const bg = browser.extension.getBackgroundPage();
+    bg.originalCloseForTest = bg.browser.tabs.remove;
+    bg.browser.tabs.remove = async id => { if (id !== tabId) await bg.originalCloseForTest(id); };
+  }, tabsBefore[2].id);
+  let response;
+  try {
+    response = await extensionCall(driver, async message => browser.runtime.sendMessage(message), { type: 'sidebar:closeCollection', currentWindowId, collectionId });
+  } finally {
+    await extensionCall(driver, async () => {
+      const bg = browser.extension.getBackgroundPage();
+      bg.browser.tabs.remove = bg.originalCloseForTest;
+    });
+  }
+  assert.match(response.error || '', /cancel/i);
+  await f.ready(tabsBefore.map(tab => tab.url));
+  const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+  const collection = snapshot.collections.find(c => c.id === collectionId);
+  assert.equal(collection.liveGroupCount, 1);
+  assert.equal(collection.snapshotTabCount, 3);
+  const restored = await extensionCall(driver, async groupId => browser.tabs.query({ groupId }), collection.groups[0].runtimeGroupId);
+  assert.deepEqual(restored.map(tab => tab.url), tabsBefore.map(tab => tab.url));
+  assert.deepEqual(await getNativeSavedGroups(driver), []);
 });
