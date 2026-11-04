@@ -32,6 +32,24 @@ panel, replacing the placeholder tab. Enter on a choice opens the saved
 collection. Tab and Shift+Tab also move between the choices. Escape clears a
 query, then closes the popup when pressed again.
 
+The sidebar keeps its management layout and starts with Filter focused. Down
+enters the collection list; Up/Down moves through collection headings, groups,
+and expanded choices. Tab and Shift+Tab reach every action and native dropdown.
+Enter or Space on a collection heading expands/collapses it; Right expands it
+and then enters its first group. Left returns to the heading or collapses it.
+Filtered collections stay expanded. Enter from Filter invokes the first
+collection's existing Open/Go to action. Saved collections offer New Window and
+Append Here with the same opening rules as the quick panel.
+
+Right opens an action's choices; Down enters them. Left or Escape closes choices
+and returns focus to their button. Otherwise Escape clears filtering, then
+returns to Filter, keeping the sidebar open. Home/End jumps to the first/last
+navigation item outside text fields and dropdowns. Alt+Up/Down on a group or its
+controls reorders it; activating the drag handle opens its existing move panel.
+Text editing, dropdown keys, and input-method composition retain their native
+behavior. Focus and unfinished move destinations survive live list updates.
+An expandable Keyboard controls guide is available at the bottom of the sidebar.
+
 Closing a collection keeps its groups saved in the extension. Close and delete
 actions avoid creating additional Firefox saved groups. If an action empties a
 window, it leaves one blank tab open. A canceled Close restores tabs from a
@@ -51,6 +69,7 @@ key, with at most five activity dates and no collection names or tab information
 
 - `src/background.js`: collection state, tab-group sync, open/move/delete actions
 - `src/sidebar.html`, `src/sidebar.css`, `src/sidebar.js`: main management UI
+- `src/sidebar-keyboard.js`: sidebar keyboard navigation and focus restoration
 - `src/popup.html`, `src/popup.css`, `src/popup.js`: quick-open popup
 - `src/shared.js`: shared collection/group logic used by background and UI
 - `src/review-*.js`, `src/review.css`: local review reminder timing, links, and presentation

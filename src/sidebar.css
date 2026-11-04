@@ -333,6 +333,24 @@ body.has-filter .filter-control input {
   cursor: pointer;
 }
 
+/* Keep keyboard focus distinct from open, pinned, and hover styling in both themes. */
+.app :is(button, input, select, a, summary):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.keyboard-help {
+  margin-top: 10px;
+}
+
+.keyboard-help summary {
+  cursor: pointer;
+}
+
+.keyboard-help p {
+  line-height: 1.5;
+}
+
 .collection-summary:hover .collection-title,
 .collection-summary:focus-visible .collection-title {
   color: var(--accent);

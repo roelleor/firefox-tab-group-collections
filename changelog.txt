@@ -2,9 +2,20 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
-Unreleased
+1.7.0 - 2026-11-04
+
+Added
+- Full sidebar keyboard control: Filter receives initial focus, arrows navigate collections, groups, and expanded choices, and Tab reaches every management action. Collection headings keep their expand/collapse behavior.
+- Keyboard group reordering with Alt+Up/Down and access to the existing move panel from the drag handle. An expandable Keyboard controls guide is included in the sidebar.
+
+Changed
+- Enter from search activates the first collection in either panel, using its existing Open or Go to action.
+- Sidebar opening choices now use New Window and Append Here, matching the quick panel. Escape closes sidebar choices, clears filtering, then returns to Filter while keeping the sidebar open.
 
 Fixed
+- Sidebar focus and unfinished move destinations survive live updates, group renames, and transitions between open and saved groups. Relocated focused controls stay visible, while passive refreshes preserve manual scrolling.
+- Reduced sidebar refresh work for large group lists by skipping closed move forms and resolving focus targets once per update.
+- Firefox Home is now recognized as an empty window when opening saved collections, alongside blank and New Tab pages. Restoring a collection replaces the unchanged placeholder tab.
 - Closing collections, deleting groups, and deleting collections with their groups no longer create additional saved copies in Firefox. Empty windows retain a blank tab.
 - Canceled close and delete actions preserve surviving groups. Interrupted collection closes restore partly closed groups through Firefox's undo history, with saved URL recovery when undo is unavailable.
 

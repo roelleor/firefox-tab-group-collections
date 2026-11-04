@@ -44,6 +44,7 @@ let refreshTimerId = null;
 let dragState = null;
 let dragSourceNode = null;
 let activeDropIndicator = null;
+let sidebarKeyboard = null;
 
 const uiState = {
   filterText: '',
@@ -281,15 +282,21 @@ function buildGroupMeta(group) {
   return parts.join(' • ');
 }
 
+/** Keep disclosures attached to a group across renames and live/saved transitions. */
+function getGroupUiKey(group) {
+  return group.snapshotGroupId || group.key;
+}
+
 function buildColorMenu(group) {
   const menu = createNode('div', 'group-color-menu');
-  menu.classList.toggle('hidden', openColorMenuKey !== group.key);
+  menu.classList.toggle('hidden', openColorMenuKey !== getGroupUiKey(group));
 
   for (const color of GROUP_COLOR_SEQUENCE) {
     const swatchButton = createNode('button', 'group-color-option');
     swatchButton.type = 'button';
     swatchButton.title = `Set color to ${color}`;
     swatchButton.setAttribute('aria-label', `Set color to ${color}`);
+    swatchButton.setAttribute('aria-pressed', String(color === group.color));
     swatchButton.classList.toggle('selected', color === group.color);
 
     const swatch = createNode('span', 'group-color-option-swatch');
@@ -564,7 +571,8 @@ function createGroupContent(group) {
   dotButton.title = `Change color for "${group.title}"`;
   dotButton.setAttribute('aria-label', `Change color for ${group.title}`);
   dotButton.addEventListener('click', () => {
-    openColorMenuKey = openColorMenuKey === group.key ? null : group.key;
+    const groupKey = getGroupUiKey(group);
+    openColorMenuKey = openColorMenuKey === groupKey ? null : groupKey;
     openMovePanelKey = null;
     openDeleteMenuId = null;
     openGroupDeleteMenuKey = null;
@@ -643,8 +651,11 @@ function createGroupContent(group) {
   return wrapper;
 }
 
+/** Render a group with a stable saved identity so keyboard focus can follow live/saved transitions. */
 function renderGroup(group, collectionId, availableCollections) {
   const row = createNode('article', 'group-row');
+  row.dataset.focusGroupId = getGroupUiKey(group);
+  row.dataset.groupKey = group.key;
   const main = createNode('div', 'group-main');
   if (group.kind === 'live' || group.kind === 'snapshot') {
     main.draggable = true;
@@ -665,6 +676,7 @@ function renderGroup(group, collectionId, availableCollections) {
     const dragHandle = createNode('button', 'drag-handle', '⋮⋮');
     dragHandle.type = 'button';
     dragHandle.title = `Drag "${group.title}" to reorder or move`;
+    dragHandle.setAttribute('aria-label', `Move or reorder ${group.title}`);
     dragHandle.draggable = true;
     dragHandle.addEventListener('dragstart', (event) => {
       startGroupDrag(event, group, collectionId, row);
@@ -679,8 +691,10 @@ function renderGroup(group, collectionId, availableCollections) {
     const moveButton = createNode('button', 'move-button', '↔');
     moveButton.type = 'button';
     moveButton.title = `Move "${group.title}" to another collection`;
+    moveButton.setAttribute('aria-label', `Move ${group.title} to another collection`);
     moveButton.addEventListener('click', () => {
-      openMovePanelKey = openMovePanelKey === group.key ? null : group.key;
+      const groupKey = getGroupUiKey(group);
+      openMovePanelKey = openMovePanelKey === groupKey ? null : groupKey;
       openColorMenuKey = null;
       openDeleteMenuId = null;
       openGroupDeleteMenuKey = null;
@@ -691,9 +705,12 @@ function renderGroup(group, collectionId, availableCollections) {
 
   const deleteButton = createNode('button', 'move-button danger-button group-delete-button', '×');
   deleteButton.type = 'button';
+  deleteButton.dataset.focusRole = 'delete-group';
   deleteButton.title = `Delete options for "${group.title}"`;
+  deleteButton.setAttribute('aria-label', `Delete options for ${group.title}`);
   deleteButton.addEventListener('click', () => {
-    openGroupDeleteMenuKey = openGroupDeleteMenuKey === group.key ? null : group.key;
+    const groupKey = getGroupUiKey(group);
+    openGroupDeleteMenuKey = openGroupDeleteMenuKey === groupKey ? null : groupKey;
     openColorMenuKey = null;
     openMovePanelKey = null;
     openDeleteMenuId = null;
@@ -713,9 +730,10 @@ function renderGroup(group, collectionId, availableCollections) {
 
   if (group.canMove) {
     const movePanel = createNode('div', 'move-panel');
-    movePanel.classList.toggle('hidden', openMovePanelKey !== group.key);
+    movePanel.classList.toggle('hidden', openMovePanelKey !== getGroupUiKey(group));
 
     const moveSelect = createNode('select', 'move-select');
+    moveSelect.setAttribute('aria-label', `Move ${group.title} to collection`);
     moveSelect.appendChild(buildCollectionOptions(collectionId, availableCollections));
     moveSelect.addEventListener('change', () => {
       if (moveSelect.value === NEW_COLLECTION_OPTION) {
@@ -797,7 +815,7 @@ function renderGroup(group, collectionId, availableCollections) {
   }
 
   const deleteMenu = createNode('div', 'delete-menu group-delete-menu');
-  deleteMenu.classList.toggle('hidden', openGroupDeleteMenuKey !== group.key);
+  deleteMenu.classList.toggle('hidden', openGroupDeleteMenuKey !== getGroupUiKey(group));
 
   if (!Shared.isUncategorizedCollectionId(collectionId)) {
     const removeButton = createNode('button', 'action-button', 'Remove from Collection');
@@ -863,12 +881,14 @@ function renderGroup(group, collectionId, availableCollections) {
   return row;
 }
 
+/** Keep collection actions unchanged while exposing native heading and disclosure controls. */
 function renderCollection(collection, availableCollections, filterActive) {
   const totalGroupCount = collection.groups.length;
   const isFullyOpen = collection.liveGroupCount > 0 && collection.liveGroupCount === totalGroupCount;
   const isPartlyOpen = collection.liveGroupCount > 0 && collection.liveGroupCount < totalGroupCount;
   const hasLiveGroups = collection.liveGroupCount > 0;
   const card = createNode('section', 'collection-card');
+  card.dataset.collectionId = collection.id;
   card.classList.toggle('is-open', isFullyOpen);
   card.classList.toggle('is-partly-open', isPartlyOpen);
 
@@ -881,9 +901,11 @@ function renderCollection(collection, availableCollections, filterActive) {
     toggleCollectionCollapsed(collection.id);
   });
   const titleBar = createNode('div', 'collection-title-bar');
-  const titleButton = createNode('div', 'collection-title-button');
-  titleButton.appendChild(createNode('h2', 'collection-title', collection.name));
-  titleBar.appendChild(titleButton);
+  const title = createNode('h2', 'collection-title');
+  const titleButton = createNode('button', 'collection-title-button', collection.name);
+  titleButton.type = 'button';
+  title.appendChild(titleButton);
+  titleBar.appendChild(title);
 
   if (!collapsed) {
     const renameCollectionButton = createNode('button', 'inline-icon-button');
@@ -931,6 +953,7 @@ function renderCollection(collection, availableCollections, filterActive) {
     pinButton.type = 'button';
     pinButton.title = collection.isPinned ? 'Unpin collection' : 'Pin collection';
     pinButton.setAttribute('aria-label', collection.isPinned ? 'Unpin collection' : 'Pin collection');
+    pinButton.setAttribute('aria-pressed', String(collection.isPinned));
     pinButton.classList.toggle('is-active', collection.isPinned);
     pinButton.appendChild(createIcon(collection.isPinned ? 'pin' : 'pinOff'));
     pinButton.addEventListener('click', async (event) => {
@@ -970,8 +993,13 @@ function renderCollection(collection, availableCollections, filterActive) {
 
   if (!collection.isUncategorized) {
     const opensDirectlyInCurrentWindow = canOpenSavedCollectionInCurrentWindow(collection);
-    const openButton = createNode('button', 'action-button', isFullyOpen ? 'Go to' : 'Open');
+    const openButton = createNode('button', 'action-button collection-open-button', isFullyOpen ? 'Go to' : 'Open');
     openButton.type = 'button';
+    openButton.dataset.focusRole = 'open';
+    openButton.disabled = !collection.liveGroupCount && !collection.snapshotGroupCount;
+    if (!hasLiveGroups && collection.snapshotGroupCount && !opensDirectlyInCurrentWindow) {
+      openButton.setAttribute('aria-expanded', String(openCollectionMenuId === collection.id));
+    }
     openButton.addEventListener('click', async () => {
       if (isPartlyOpen) {
         await runAction('Opening missing tab groups…', async () => {
@@ -1090,7 +1118,7 @@ function renderCollection(collection, availableCollections, filterActive) {
   }
 
   if (!collection.isUncategorized) {
-    const deleteButton = createNode('button', 'action-button', 'Delete');
+    const deleteButton = createNode('button', 'action-button collection-delete-button', 'Delete');
     deleteButton.type = 'button';
     deleteButton.addEventListener('click', () => {
       openDeleteMenuId = openDeleteMenuId === collection.id ? null : collection.id;
@@ -1126,7 +1154,7 @@ function renderCollection(collection, availableCollections, filterActive) {
     });
   });
 
-  const appendButton = createNode('button', 'action-button', 'Current Window');
+  const appendButton = createNode('button', 'action-button', 'Append Here');
   appendButton.type = 'button';
   appendButton.disabled = !collection.snapshotGroupCount;
   appendButton.addEventListener('click', async () => {
@@ -1254,10 +1282,12 @@ function renderCollectionSection(title, collections, availableCollections, filte
   return section;
 }
 
+/** Refresh the list while retaining keyboard focus and unfinished move destinations. */
 function renderSnapshot(snapshot) {
   if (!snapshot) {
     return;
   }
+  const keyboardState = sidebarKeyboard?.capture();
 
   if (snapshot.createdCollectionId) {
     uiState.collapsedCollections[snapshot.createdCollectionId] = false;
@@ -1282,6 +1312,7 @@ function renderSnapshot(snapshot) {
     collectionsNode.appendChild(renderEmptyState(
       'Create or save a tab group, then use the sidebar to cluster groups into collections.'
     ));
+    if (keyboardState) sidebarKeyboard.restore(keyboardState);
     return;
   }
 
@@ -1289,6 +1320,7 @@ function renderSnapshot(snapshot) {
     collectionsNode.appendChild(renderEmptyState(
       `No collections or group names match "${uiState.filterText.trim()}".`
     ));
+    if (keyboardState) sidebarKeyboard.restore(keyboardState);
     return;
   }
 
@@ -1322,9 +1354,13 @@ function renderSnapshot(snapshot) {
       filterActive
     ));
   }
+  sidebarKeyboard?.enhance();
+  if (keyboardState) sidebarKeyboard.restore(keyboardState);
 }
 
+/** Serialize user actions so held activation/reorder keys cannot submit overlapping mutations. */
 async function runAction(message, task) {
+  if (document.body.classList.contains('is-busy')) return;
   clearError();
   setBusyState(true, message);
 
@@ -1401,6 +1437,70 @@ function addLiveRefreshListeners() {
 
 addLiveRefreshListeners();
 
+/** Close only the requested disclosure, keeping the other sidebar UI state intact. */
+function closeKeyboardPanel(panel) {
+  if (panel.matches('.open-menu')) openCollectionMenuId = null;
+  else if (panel.matches('.group-delete-menu')) openGroupDeleteMenuKey = null;
+  else if (panel.matches('.delete-menu')) openDeleteMenuId = null;
+  else if (panel.matches('.group-color-menu')) openColorMenuKey = null;
+  else if (panel.matches('.move-panel')) openMovePanelKey = null;
+  renderSnapshot(lastSnapshot);
+}
+
+/** Activate the first filtered collection through its normal Open/Go to handler. */
+function activateKeyboardCollection(collectionId) {
+  const findCard = () => Array.from(collectionsNode.querySelectorAll('.collection-card'))
+    .find(card => card.dataset.collectionId === collectionId);
+  let card = findCard();
+  if (card.querySelector('.collection-body').classList.contains('hidden')) {
+    setCollectionCollapsed(collectionId, false);
+    card = findCard();
+  }
+  const button = card.querySelector('.collection-open-button:not(:disabled)') || card.querySelector('.collection-title-button');
+  button.focus();
+  if (button.matches('.collection-open-button')) button.click();
+}
+
+/** Reuse drag/drop placement to reorder a group against its actual neighboring saved/live group. */
+async function reorderKeyboardGroup(row, offset) {
+  const collectionId = row.closest('.collection-card').dataset.collectionId;
+  const collection = lastSnapshot.collections.find(item => item.id === collectionId);
+  const index = collection.groups.findIndex(group => group.key === row.dataset.groupKey);
+  const group = collection.groups[index];
+  const neighbor = collection.groups[index + offset];
+  if (!group || !neighbor) return;
+  await runAction('Reordering tab group…', async () => {
+    const snapshot = await sendMessage({
+      type: 'sidebar:dropGroup', currentWindowId,
+      sourceKind: group.kind, sourceCollectionId: collectionId,
+      groupId: group.runtimeGroupId || null, snapshotGroupId: group.snapshotGroupId || null,
+      targetCollectionId: collectionId,
+      targetGroupId: neighbor.runtimeGroupId || null,
+      targetSnapshotGroupId: neighbor.snapshotGroupId || null,
+      position: offset < 0 ? 'before' : 'after'
+    });
+    renderSnapshot(snapshot);
+  });
+}
+
+/** Clear filtering and restore search focus for both the Clear button and Escape. */
+function clearFilter() {
+  uiState.filterText = '';
+  filterInputNode.value = '';
+  renderSnapshot(lastSnapshot);
+  filterInputNode.focus();
+}
+
+sidebarKeyboard = globalThis.TabGroupCollectionsSidebarKeyboard.create({
+  root: collectionsNode,
+  filter: filterInputNode,
+  onCollapse: setCollectionCollapsed,
+  onActivate: activateKeyboardCollection,
+  onClearFilter: clearFilter,
+  onClosePanel: closeKeyboardPanel,
+  onReorder: reorderKeyboardGroup
+});
+
 browser.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local' || !Object.prototype.hasOwnProperty.call(changes, STORAGE_KEY)) {
     return;
@@ -1420,11 +1520,7 @@ filterInputNode.addEventListener('input', () => {
   renderSnapshot(lastSnapshot);
 });
 
-clearFilterButtonNode.addEventListener('click', () => {
-  uiState.filterText = '';
-  filterInputNode.value = '';
-  renderSnapshot(lastSnapshot);
-});
+clearFilterButtonNode.addEventListener('click', clearFilter);
 
 openAllButtonNode.addEventListener('click', () => {
   setAllCollectionsCollapsed(false);

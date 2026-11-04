@@ -541,6 +541,285 @@ test('toolbar popup keeps its width while searching and expanding saved choices'
   assert.ok(scrolling.contentWidth <= scrolling.clientWidth, 'A vertical scrollbar must not cause horizontal overflow.');
 });
 
+test('sidebar keyboard navigates collections, groups, and opening choices without changing click actions', async (t) => {
+  const { driver } = await launchExtension(t);
+  await seedCollections(driver);
+  await waitForBodyText(driver, 'Admin');
+  const press = async (...keys) => (await driver.switchTo().activeElement()).sendKeys(...keys);
+  const activeMatches = selector => driver.executeScript(selector => document.activeElement.matches(selector), selector);
+  assert.equal(await driver.executeScript(() => document.activeElement.id), 'filter-input');
+  await press(Key.ARROW_DOWN);
+  assert.ok(await activeMatches('button.collection-title-button'));
+  await press(Key.ENTER);
+  assert.equal(await driver.executeScript(() => document.activeElement.getAttribute('aria-expanded')), 'false');
+  await press(Key.ARROW_RIGHT, Key.ARROW_RIGHT);
+  assert.ok(await activeMatches('.group-button'), 'Right on an expanded heading enters its first group.');
+  await press(Key.ARROW_LEFT);
+  assert.ok(await activeMatches('.collection-title-button'));
+  await press(Key.ARROW_LEFT);
+  assert.equal(await driver.executeScript(() => document.activeElement.getAttribute('aria-expanded')), 'false');
+  await press(Key.ARROW_UP);
+  assert.equal(await driver.executeScript(() => document.activeElement.id), 'filter-input');
+
+  await press('Work');
+  const composing = await driver.executeScript(() => {
+    const event = new KeyboardEvent('keydown', { key: 'ArrowDown', isComposing: true, bubbles: true, cancelable: true });
+    document.activeElement.dispatchEvent(event);
+    return { prevented: event.defaultPrevented, focus: document.activeElement.id };
+  });
+  assert.deepEqual(composing, { prevented: false, focus: 'filter-input' });
+  await driver.executeScript(() => document.activeElement.setSelectionRange(0, 0));
+  await press(Key.ARROW_RIGHT);
+  assert.equal(await driver.executeScript(() => document.activeElement.selectionStart), 1);
+  await press(Key.ARROW_DOWN, Key.ARROW_LEFT);
+  assert.equal(await driver.executeScript(() => document.activeElement.getAttribute('aria-expanded')), 'true',
+    'Filtered collections stay expanded.');
+  await press(Key.ESCAPE);
+  assert.equal(await driver.findElement(By.id('filter-input')).getAttribute('value'), '');
+  assert.equal(await driver.executeScript(() => document.activeElement.id), 'filter-input');
+  await press('no results anywhere', Key.ENTER);
+  assert.equal(await driver.executeScript(() => document.activeElement.id), 'filter-input');
+  await press(Key.ESCAPE, Key.ESCAPE);
+  assert.ok(await activeMatches('#filter-input'), 'Escape keeps the persistent sidebar open.');
+});
+
+for (const targetMode of ['append', 'new-window']) {
+  test(`sidebar keyboard opens saved collections using ${targetMode} choices`, async t => {
+    const { driver } = await launchExtension(t);
+    const currentWindowId = await getCurrentWindowId(driver);
+    const created = await sendRuntimeMessage(driver, {
+      type: 'sidebar:createCollection', currentWindowId, name: 'Saved keyboard'
+    });
+    const collectionId = created.createdCollectionId;
+    await sendRuntimeMessage(driver, {
+      type: 'sidebar:createGroup', currentWindowId, collectionId, title: 'Restored keyboard group'
+    });
+    await sendRuntimeMessage(driver, { type: 'sidebar:closeCollection', currentWindowId, collectionId });
+    await waitForBodyText(driver, 'Saved keyboard');
+    const press = async (...keys) => (await driver.switchTo().activeElement()).sendKeys(...keys);
+    await driver.findElement(By.id('filter-input')).sendKeys('Saved keyboard', Key.ENTER);
+    assert.equal(await driver.executeScript(() => document.activeElement.getAttribute('aria-expanded')), 'true');
+    await press(Key.ARROW_DOWN);
+    assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'New Window');
+    await press(Key.ARROW_DOWN);
+    assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'Append Here');
+    await press(Key.ARROW_LEFT);
+    assert.equal(await driver.executeScript(() => document.activeElement.getAttribute('aria-expanded')), 'false');
+    await press(Key.ARROW_RIGHT, Key.ARROW_RIGHT);
+    assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'New Window');
+    await press(Key.ESCAPE);
+    assert.equal(await driver.executeScript(() => document.activeElement.getAttribute('aria-expanded')), 'false');
+    await press(Key.ENTER, Key.TAB, Key.TAB, Key.TAB);
+    assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'New Window',
+      'Tab follows the existing action row before reaching its opening choices.');
+    if (targetMode === 'append') await press(Key.TAB);
+    const windowsBefore = await driver.executeAsyncScript(done => browser.windows.getAll().then(windows => done(windows.length)));
+    await press(Key.ENTER);
+    await driver.wait(async () => {
+      const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+      return snapshot.collections.find(collection => collection.id === collectionId)?.liveGroupCount === 1;
+    }, 10000);
+    const windowsAfter = await driver.executeAsyncScript(done => browser.windows.getAll().then(windows => done(windows.length)));
+    assert.equal(windowsAfter, windowsBefore + Number(targetMode === 'new-window'));
+  });
+}
+
+test('sidebar keyboard restores focus and unfinished move choices through refresh and cancellation', async t => {
+  const { driver } = await launchExtension(t);
+  await seedCollections(driver);
+  await waitForBodyText(driver, 'Admin');
+  const currentWindowId = await getCurrentWindowId(driver);
+  const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+  const work = snapshot.collections.find(collection => collection.name === 'Work');
+  const group = work.groups[0];
+  const press = async (...keys) => (await driver.switchTo().activeElement()).sendKeys(...keys);
+  await driver.executeScript(() => document.querySelector('.group-row .move-button:not(.group-delete-button)').focus());
+  await press(Key.ENTER, Key.ARROW_DOWN);
+  assert.equal(await driver.executeScript(() => document.activeElement.tagName), 'SELECT');
+  await press(Key.HOME);
+  const destination = await driver.executeScript(() => document.activeElement.value);
+  await sendRuntimeMessage(driver, {
+    type: 'sidebar:renameGroup', currentWindowId, collectionId: work.id, sourceKind: 'live',
+    groupId: group.runtimeGroupId, snapshotGroupId: group.snapshotGroupId, title: 'Refreshed Admin'
+  });
+  await waitForBodyText(driver, 'Refreshed Admin');
+  assert.equal(await driver.executeScript(() => document.activeElement.tagName), 'SELECT');
+  assert.equal(await driver.executeScript(() => document.activeElement.value), destination);
+  await press(Key.TAB, Key.ESCAPE);
+  assert.ok(await driver.executeScript(() => document.activeElement.matches('.move-button:not(.group-delete-button)')));
+  await press(Key.ARROW_LEFT);
+  assert.ok(await driver.executeScript(() => document.activeElement.matches('.collection-title-button')));
+  await driver.executeScript(() => document.querySelector('.pin-toggle-button').focus());
+  await press(Key.ENTER);
+  await driver.wait(() => driver.executeScript(() => document.querySelector('.pin-toggle-button').getAttribute('aria-pressed') === 'true'), 5000);
+  assert.ok(await driver.executeScript(() => document.activeElement.matches('.pin-toggle-button')),
+    'Pinning may move a card between sections but must preserve focus.');
+  await driver.executeScript(() => document.querySelector('.group-delete-button').focus());
+  await press(Key.ENTER, Key.ARROW_DOWN, Key.ESCAPE);
+  assert.ok(await driver.executeScript(() => document.activeElement.matches('.group-delete-button')));
+  await driver.executeScript(() => document.querySelector('.group-dot-button').focus());
+  await press(Key.ARROW_RIGHT, Key.ARROW_DOWN, Key.ENTER);
+  assert.ok(await driver.executeScript(() => document.activeElement.matches('.group-dot-button')));
+});
+
+test('sidebar keyboard reorders saved groups and moves them without dragging', async t => {
+  const { driver } = await launchExtension(t);
+  const currentWindowId = await getCurrentWindowId(driver);
+  const created = await sendRuntimeMessage(driver, { type: 'sidebar:createCollection', currentWindowId, name: 'Keyboard order' });
+  const collectionId = created.createdCollectionId;
+  for (const title of ['First', 'Second', 'Third']) {
+    await sendRuntimeMessage(driver, { type: 'sidebar:createGroup', currentWindowId, collectionId, title });
+  }
+  await sendRuntimeMessage(driver, { type: 'sidebar:closeCollection', currentWindowId, collectionId });
+  await waitForBodyText(driver, 'Third');
+  const press = async (...keys) => (await driver.switchTo().activeElement()).sendKeys(...keys);
+  await driver.executeScript(() => [...document.querySelectorAll('.group-button')].find(node => node.textContent === 'Second').focus());
+  await driver.actions().keyDown(Key.ALT).sendKeys(Key.ARROW_UP).keyUp(Key.ALT).perform();
+  await driver.wait(async () => (await driver.findElements(By.css('.group-title'))).length === 3 &&
+    await driver.findElement(By.css('.group-title')).getText() === 'Second', 5000);
+  assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'Second');
+  await driver.actions().keyDown(Key.ALT).sendKeys(Key.ARROW_DOWN).keyUp(Key.ALT).perform();
+  await driver.wait(async () => await driver.findElement(By.css('.group-title')).getText() === 'First', 5000);
+  await driver.executeScript(() => document.activeElement.closest('.group-row').querySelector('.drag-handle').focus());
+  await press(Key.ENTER, Key.ARROW_DOWN);
+  assert.equal(await driver.executeScript(() => document.activeElement.tagName), 'SELECT');
+  await press('u');
+  assert.equal(await driver.executeScript(() => document.activeElement.selectedOptions[0].textContent), 'Uncategorized');
+  await press(Key.TAB, Key.ENTER);
+  await driver.wait(async () => {
+    const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+    return snapshot.collections.find(collection => collection.isUncategorized)?.groups.some(group => group.title === 'Second');
+  }, 5000);
+  assert.equal(await driver.executeScript(() => document.activeElement.closest('.group-row')?.querySelector('.group-title').textContent), 'Second',
+    'Focus should follow the moved group into its destination collection.');
+});
+
+test('sidebar keyboard retains a new move destination and recovers focus after rename and deletion', async t => {
+  const { driver } = await launchExtension(t);
+  await seedCollections(driver);
+  await waitForBodyText(driver, 'Admin');
+  const currentWindowId = await getCurrentWindowId(driver);
+  const snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+  const work = snapshot.collections.find(collection => collection.name === 'Work');
+  const press = async (...keys) => (await driver.switchTo().activeElement()).sendKeys(...keys);
+  await driver.executeScript(() => document.querySelector('.group-row .move-button:not(.group-delete-button)').focus());
+  await press(Key.ENTER, Key.ARROW_DOWN, Key.END);
+  const namePrompt = await driver.switchTo().alert();
+  await namePrompt.sendKeys('New keyboard destination');
+  await namePrompt.accept();
+  await press(Key.TAB);
+  await sendRuntimeMessage(driver, { type: 'sidebar:renameCollection', currentWindowId, collectionId: work.id, name: 'Renamed work' });
+  await waitForBodyText(driver, 'Renamed work');
+  assert.equal(await driver.executeScript(() => document.querySelector('.move-panel:not(.hidden) select').selectedOptions[0].textContent),
+    'New collection: New keyboard destination');
+  assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'Move');
+  await press(Key.ENTER);
+  await driver.wait(() => driver.executeScript(() => [...document.querySelectorAll('.collection-title')]
+    .some(node => node.textContent === 'New keyboard destination')), 5000);
+  assert.equal(await driver.executeScript(() => document.activeElement.closest('.collection-card')?.querySelector('.collection-title').textContent),
+    'New keyboard destination');
+  await driver.executeScript(() => {
+    document.activeElement.closest('.group-row').querySelector('.inline-icon-button').focus();
+  });
+  await press(Key.ENTER);
+  const renamePrompt = await driver.switchTo().alert();
+  await renamePrompt.sendKeys('Renamed with keyboard');
+  await renamePrompt.accept();
+  await waitForBodyText(driver, 'Renamed with keyboard');
+  assert.ok(await driver.executeScript(() => document.activeElement.matches('.inline-icon-button')));
+  await driver.executeScript(() => document.activeElement.closest('.group-row').querySelector('.group-delete-button').focus());
+  await press(Key.ENTER, Key.ARROW_DOWN, Key.ARROW_DOWN, Key.ENTER);
+  await (await driver.switchTo().alert()).accept();
+  await driver.wait(() => driver.executeScript(() => ![...document.querySelectorAll('.group-title')].some(node => node.textContent === 'Renamed with keyboard')), 5000);
+  assert.ok(await driver.executeScript(() => document.activeElement.matches('.collection-title-button')),
+    'Deleting the focused group returns to its surviving collection heading.');
+});
+
+test('sidebar keyboard keeps the focused collection visible when pinning moves it above the viewport', async t => {
+  const { driver } = await launchExtension(t);
+  const currentWindowId = await getCurrentWindowId(driver);
+  const first = await sendRuntimeMessage(driver, { type: 'sidebar:createCollection', currentWindowId, name: 'A tall collection' });
+  for (let index = 0; index < 8; index += 1) {
+    await sendRuntimeMessage(driver, { type: 'sidebar:createGroup', currentWindowId, collectionId: first.createdCollectionId, title: `Tall group ${index}` });
+  }
+  await sendRuntimeMessage(driver, { type: 'sidebar:createCollection', currentWindowId, name: 'Z pin target' });
+  await waitForBodyText(driver, 'Z pin target');
+  await driver.findElement(By.id('sort-select')).sendKeys('A');
+  await driver.executeScript(() => [...document.querySelectorAll('.collection-card')]
+    .find(card => card.querySelector('.collection-title').textContent === 'Z pin target').querySelector('.pin-toggle-button').focus());
+  await (await driver.switchTo().activeElement()).sendKeys(Key.ENTER);
+  await driver.wait(() => driver.executeScript(() => document.activeElement.getAttribute('aria-pressed') === 'true'), 5000);
+  assert.ok(await driver.executeScript(() => {
+    const rect = document.activeElement.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= innerHeight;
+  }), 'Focus must scroll into view when pinning relocates a card.');
+});
+
+for (const change of ['saved rename', 'live to saved']) {
+  test(`sidebar review regression retains an open move form through ${change}`, async t => {
+    const { driver } = await launchExtension(t);
+    await seedCollections(driver);
+    await waitForBodyText(driver, 'Admin');
+    const currentWindowId = await getCurrentWindowId(driver);
+    let snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+    const work = snapshot.collections.find(collection => collection.name === 'Work');
+    if (change === 'saved rename') {
+      await sendRuntimeMessage(driver, { type: 'sidebar:closeCollection', currentWindowId, collectionId: work.id });
+      await driver.wait(() => driver.executeScript(() => document.querySelector('.group-meta').textContent.includes('Closed')), 5000);
+    }
+    await driver.executeScript(() => document.querySelector('.group-row .move-button:not(.group-delete-button)').focus());
+    const press = async (...keys) => (await driver.switchTo().activeElement()).sendKeys(...keys);
+    await press(Key.ENTER, Key.ARROW_DOWN, 'u');
+    assert.equal(await driver.executeScript(() => document.activeElement.selectedOptions[0].textContent), 'Uncategorized');
+    snapshot = await sendRuntimeMessage(driver, change === 'saved rename'
+      ? { type: 'sidebar:renameGroup', currentWindowId, sourceKind: 'snapshot', collectionId: work.id,
+        snapshotGroupId: work.groups[0].snapshotGroupId, title: 'Externally renamed saved group' }
+      : { type: 'sidebar:closeCollection', currentWindowId, collectionId: work.id });
+    const title = change === 'saved rename' ? 'Externally renamed saved group' : 'Admin';
+    await driver.wait(() => driver.executeScript(title => [...document.querySelectorAll('.group-row')].some(row =>
+      row.querySelector('.group-title').textContent === title && row.querySelector('.group-meta').textContent.includes('Closed')), title), 5000);
+    assert.ok(await driver.executeScript(() => document.activeElement.matches('.move-select')),
+      'The open form keeps focus across stable group identity changes.');
+    assert.equal(await driver.executeScript(() => document.activeElement.selectedOptions[0].textContent), 'Uncategorized');
+  });
+}
+
+test('sidebar review regression preserves manual scrolling during passive refresh', async t => {
+  const { driver } = await launchExtension(t);
+  await driver.manage().window().setRect({ width: 1000, height: 600 });
+  const currentWindowId = await getCurrentWindowId(driver);
+  const created = await sendRuntimeMessage(driver, { type: 'sidebar:createCollection', currentWindowId, name: 'Tall before refresh' });
+  for (let index = 0; index < 8; index += 1) {
+    await sendRuntimeMessage(driver, { type: 'sidebar:createGroup', currentWindowId, collectionId: created.createdCollectionId, title: `Group ${index}` });
+  }
+  await waitForBodyText(driver, 'Group 7');
+  const before = await driver.executeScript(() => {
+    document.querySelector('.collection-title-button').focus();
+    window.scrollTo(0, document.body.scrollHeight);
+    return scrollY;
+  });
+  assert.ok(before > 500);
+  await sendRuntimeMessage(driver, { type: 'sidebar:renameCollection', currentWindowId, collectionId: created.createdCollectionId, name: 'Tall after refresh' });
+  await driver.wait(() => driver.executeScript(() => document.querySelector('.collection-title-button').textContent === 'Tall after refresh'), 5000);
+  const after = await driver.executeScript(() => scrollY);
+  assert.ok(Math.abs(after - before) <= 2, `Passive refresh must retain manual scroll: ${before} became ${after}.`);
+});
+
+test('sidebar review regression excludes closed move forms from pending refresh state', async t => {
+  const { driver } = await launchExtension(t);
+  await seedCollections(driver);
+  await waitForBodyText(driver, 'Admin');
+  // Exercise the controller's render-state interface on real rendered controls.
+  // Closed forms have no pending user choice and must not add per-group restore work.
+  const count = await driver.executeScript(() => {
+    const controller = globalThis.TabGroupCollectionsSidebarKeyboard.create({
+      root: document.getElementById('collections'), filter: document.getElementById('filter-input')
+    });
+    return controller.capture().forms.length;
+  });
+  assert.equal(count, 0);
+});
+
 test('popup arrows enter results from search and navigate saved collection choices', async (t) => {
   const { driver, extensionBaseUrl } = await launchExtension(t);
   const currentWindowId = await getCurrentWindowId(driver);
