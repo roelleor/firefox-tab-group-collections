@@ -1,7 +1,8 @@
 {
   "name": "tab-group-collections",
   "private": true,
-  "version": "1.7.0",
+  "version": "1.8.0",
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Build and release tooling for the Tab Group Collections Firefox extension.",
   "devDependencies": {
     "selenium-webdriver": "^4.33.0"

@@ -90,7 +90,7 @@ jobs:
           rm -rf "$SOURCE_DIR"
           mkdir -p "$SOURCE_DIR/src"
 
-          cp manifest.json "$SOURCE_DIR/"
+          cp manifest.json LICENSE "$SOURCE_DIR/"
           cp -R src/. "$SOURCE_DIR/src/"
 
       - name: Sign and upload to AMO

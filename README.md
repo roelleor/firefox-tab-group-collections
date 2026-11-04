@@ -2,6 +2,24 @@
 
 Firefox WebExtension that adds a collection layer on top of native Firefox tab groups.
 
+## License
+
+Starting with version 1.8.0, Tab Group Collections is licensed under the
+**MIT License with Commons Clause License Condition v1.0**. The complete,
+combined terms are in [LICENSE](LICENSE) and are included in release packages.
+
+You can use the extension for free, including at work, and inspect, modify, and
+share its source subject to those terms. The Commons Clause restricts selling
+products or services whose value derives entirely or substantially from the
+extension, including rebranded or lightly modified paid copies. Its definition
+of selling also covers certain paid hosting, consulting, and support services;
+see [the Commons Clause explanation](https://commonsclause.com/) for details.
+The project is source available rather than open source.
+
+This change does not revoke permissions for earlier versions already released
+under MIT. The author may request voluntary donations to support development;
+using the extension does not require a donation.
+
 ## What It Does
 
 - Organizes native Firefox tab groups into higher-level collections

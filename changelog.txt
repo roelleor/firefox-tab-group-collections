@@ -2,6 +2,13 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+1.8.0 - 2026-11-04
+
+Changed
+- Starting with this release, the extension is licensed under the MIT License with Commons Clause License Condition v1.0. Use remains free, including at work; selling products or services whose value derives entirely or substantially from the extension is restricted by the combined license.
+- Included the complete combined license in extension packages and documented the terms in the repository. Permissions for earlier versions already released under MIT are unchanged.
+- No extension functionality changes in this release.
+
 1.7.0 - 2026-11-04
 
 Added

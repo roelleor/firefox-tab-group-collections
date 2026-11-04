@@ -13,6 +13,7 @@ cd "$ROOT_DIR"
 
 zip -r -FS "$DIST_DIR/$PACKAGE_NAME" \
   manifest.json \
+  LICENSE \
   src \
   -x '*.DS_Store' \
   -x '__MACOSX/*' \
