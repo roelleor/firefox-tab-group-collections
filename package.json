@@ -1,7 +1,7 @@
 {
   "name": "tab-group-collections",
   "private": true,
-  "version": "1.8.0",
+  "version": "1.8.1",
   "license": "SEE LICENSE IN LICENSE",
   "description": "Build and release tooling for the Tab Group Collections Firefox extension.",
   "devDependencies": {

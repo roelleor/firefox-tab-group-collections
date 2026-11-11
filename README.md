@@ -40,6 +40,8 @@ Collection-name matches stay compact;
 group-name matches show the matching group beneath the collection. Individual
 tab titles and URLs are not searched. Use Tab to move between controls. Down
 from search enters the results; Enter from search activates the first result.
+When a saved collection needs opening choices, this focuses New Window immediately;
+press Enter again to open it, or Down to choose Append Here.
 Up and Down move through collections and their expanded New Window and Append
 Here choices. Right opens those choices; Left
 closes them and returns focus to the collection. Enter on a collection performs

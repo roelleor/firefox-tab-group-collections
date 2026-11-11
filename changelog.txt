@@ -2,6 +2,11 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+1.8.1 - 2026-11-11
+
+Fixed
+- Enter from quick-panel search now focuses New Window immediately when the first saved collection needs opening choices. A second Enter opens it, while Down selects Append Here. Saved collections still open directly in a fresh window.
+
 1.8.0 - 2026-11-04
 
 Changed

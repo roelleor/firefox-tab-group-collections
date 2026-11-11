@@ -460,10 +460,8 @@ test('popup searches collection and live or saved group names without changing s
   await input.sendKeys('archive');
   await input.sendKeys(Key.ENTER);
   assert.equal(await driver.findElement(By.css('.open-choices:not(.hidden)')).isDisplayed(), true);
-  assert.equal(await driver.executeScript(() => document.activeElement.classList.contains('collection-link')), true);
-  await driver.switchTo().activeElement().sendKeys(Key.TAB);
   assert.equal(await driver.executeScript(() => document.activeElement.textContent.trim()), 'New Window',
-    'Tab should enter the expanded collection choices.');
+    'Enter from search should focus New Window immediately.');
   await driver.switchTo().activeElement().sendKeys(Key.TAB);
   assert.equal(await driver.executeScript(() => document.activeElement.textContent.trim()), 'Append Here');
   await driver.switchTo().activeElement().sendKeys(Key.chord(Key.SHIFT, Key.TAB));
@@ -820,6 +818,46 @@ test('sidebar review regression excludes closed move forms from pending refresh 
   assert.equal(count, 0);
 });
 
+test('quick panel search Enter focuses New Window and a second Enter opens it', async t => {
+  const { driver, extensionBaseUrl } = await launchExtension(t);
+  const currentWindowId = await getCurrentWindowId(driver);
+  const created = await sendRuntimeMessage(driver, {
+    type: 'sidebar:createCollection', currentWindowId, name: 'Saved focus'
+  });
+  const collectionId = created.createdCollectionId;
+  await sendRuntimeMessage(driver, {
+    type: 'sidebar:createGroup', currentWindowId, collectionId, title: 'Focus demo'
+  });
+  await sendRuntimeMessage(driver, { type: 'sidebar:closeCollection', currentWindowId, collectionId });
+  const originalHandle = await driver.getWindowHandle();
+  await driver.switchTo().newWindow('tab');
+  await driver.get(`${extensionBaseUrl}/src/popup.html`);
+  await waitForBodyText(driver, 'Saved focus');
+  const press = async (...keys) => (await driver.switchTo().activeElement()).sendKeys(...keys);
+  await driver.findElement(By.id('popup-search')).sendKeys('Saved focus', Key.ENTER);
+  assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'New Window');
+  assert.ok(await driver.executeScript(() => document.activeElement.matches('.open-choice-button')));
+  let snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+  assert.equal(snapshot.collections.find(collection => collection.id === collectionId).liveGroupCount, 0,
+    'The first Enter selects an opening choice without opening the collection.');
+  await press(Key.ARROW_DOWN);
+  assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'Append Here');
+  await press(Key.ARROW_UP, Key.ARROW_UP, Key.ARROW_UP);
+  assert.equal(await driver.executeScript(() => document.activeElement.id), 'popup-search');
+  await press(Key.ENTER);
+  assert.equal(await driver.executeScript(() => document.activeElement.textContent), 'New Window',
+    'Enter from search also focuses an already expanded choice without collapsing it.');
+  const before = await extensionCall(driver, () => browser.windows.getAll());
+  await press(Key.ENTER);
+  await driver.switchTo().window(originalHandle);
+  await driver.wait(async () => {
+    snapshot = await sendRuntimeMessage(driver, { type: 'sidebar:getSnapshot', currentWindowId });
+    return snapshot.collections.find(collection => collection.id === collectionId)?.liveGroupCount === 1;
+  }, 10000);
+  const after = await extensionCall(driver, () => browser.windows.getAll());
+  assert.equal(after.length, before.length + 1, 'The second Enter opens the collection in a new window.');
+});
+
 test('popup arrows enter results from search and navigate saved collection choices', async (t) => {
   const { driver, extensionBaseUrl } = await launchExtension(t);
   const currentWindowId = await getCurrentWindowId(driver);
@@ -840,7 +878,7 @@ test('popup arrows enter results from search and navigate saved collection choic
   await press(Key.ENTER);
   assert.equal(await driver.findElement(By.css('.collection-link')).getAttribute('aria-expanded'), 'true',
     'Enter from search should activate the first collection and reveal its opening choices.');
-  assert.equal(await driver.executeScript(() => document.activeElement.dataset.collectionId), collectionId);
+  assert.equal(await activeText(), 'New Window', 'Search Enter should focus the first opening choice.');
   await press(Key.ARROW_LEFT, Key.ARROW_UP);
   await press(Key.ARROW_DOWN);
   assert.equal(await driver.executeScript(() => document.activeElement.dataset.collectionId), collectionId,

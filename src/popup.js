@@ -381,7 +381,7 @@ clearSearchButtonNode.addEventListener('click', () => {
   searchInputNode.focus();
 });
 
-/** Activate the first result with Enter from search, or navigate visible actions with the arrows. */
+/** Activate the first search result, focusing New Window when opening choices are needed. */
 function handlePopupKeydown(event) {
   // Candidate navigation and cancellation belong to the active input method.
   if (event.isComposing || event.keyCode === 229) {
@@ -413,7 +413,13 @@ function handlePopupKeydown(event) {
     // Reuse the row's click action so saved collections either open directly or offer their choices.
     const firstCollection = buttons.find(button => button.matches('.collection-link'));
     firstCollection?.focus();
-    firstCollection?.click();
+    if (firstCollection?.getAttribute('aria-expanded') !== 'true') {
+      firstCollection?.click();
+    }
+    if (firstCollection?.hasAttribute('aria-expanded')) {
+      // Expanding replaces the row, so find the first choice in the newly rendered list.
+      sectionsNode.querySelector('.open-choices:not(.hidden) .open-choice-button:not(:disabled)')?.focus();
+    }
   } else if (event.key === 'ArrowDown' && (isSearchEntry || index !== -1)) {
     event.preventDefault();
     buttons[Math.min(index + 1, buttons.length - 1)]?.focus();
