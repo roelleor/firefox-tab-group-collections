@@ -1,7 +1,6 @@
 (function (root) {
   const STORAGE_KEY = 'tab-group-collections.review-prompt';
   const REVIEW_URL = 'https://addons.mozilla.org/en-US/firefox/addon/tab-group-collections/reviews/';
-  const MIN_AGE_MS = 14 * 86400000;
   const MIN_ACTIVE_DAYS = 5;
 
   /** Read only reminder preferences; collection names, groups, and tabs never enter this state. */
@@ -41,11 +40,10 @@
     return date.getTime();
   }
 
-  /** Reserve a single sidebar appearance; ignoring it also starts the three-month pause. */
+  /** Reserve a sidebar appearance after five active days; showing it starts the three-month pause. */
   function claim(raw, now) {
     const state = visit(raw, now);
-    const showPrompt = now - state.firstUsedAt >= MIN_AGE_MS &&
-      state.activeDays.length >= MIN_ACTIVE_DAYS && now >= state.nextPromptAt;
+    const showPrompt = state.activeDays.length >= MIN_ACTIVE_DAYS && now >= state.nextPromptAt;
     if (showPrompt) state.nextPromptAt = monthsAfter(now, 3);
     return { state, showPrompt };
   }

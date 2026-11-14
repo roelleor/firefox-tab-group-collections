@@ -78,9 +78,10 @@ their URLs are kept in a separate recovery collection. Existing Firefox saved co
 managed through Firefox's own controls.
 
 Both panels include a quiet link to the extension's Mozilla Add-ons reviews page.
-The sidebar also offers a dismissible invitation after two weeks and successful
-collection actions on five distinct days. Showing or dismissing that card pauses
-it for three calendar months. Clicking any review link pauses it for a year;
+The sidebar also offers a dismissible invitation after successful collection
+actions on five distinct days, with no additional waiting period. Showing or
+dismissing that card pauses it for three calendar months. Clicking any review
+link pauses it for a year;
 the permanent links remain available. The extension cannot detect whether a
 review was submitted. Reminder preferences are stored locally under a separate
 key, with at most five activity dates and no collection names or tab information.

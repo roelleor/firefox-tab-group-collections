@@ -14,13 +14,16 @@ function eligibleState() {
   return state;
 }
 
-test('review card requires two weeks and activity on five distinct days', () => {
+test('review card becomes eligible on the fifth active day without an age restriction', () => {
   let state = Review.visit(null, date(1, 1));
   for (let i = 0; i < 10; i += 1) state = Review.activity(state, date(1, 1));
   assert.equal(Review.claim(state, date(2, 1)).showPrompt, false);
-  for (const day of [2, 3, 4, 5]) state = Review.activity(state, date(1, day));
-  assert.equal(Review.claim(state, date(1, 14)).showPrompt, false);
-  assert.equal(Review.claim(state, date(1, 15)).showPrompt, true);
+  for (const day of [2, 3, 4]) {
+    state = Review.activity(state, date(1, day));
+    assert.equal(Review.claim(state, date(1, day)).showPrompt, false);
+  }
+  state = Review.activity(state, date(1, 5));
+  assert.equal(Review.claim(state, date(1, 5)).showPrompt, true);
 });
 
 test('showing or dismissing the card pauses it for three calendar months', () => {

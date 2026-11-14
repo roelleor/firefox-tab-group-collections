@@ -264,7 +264,7 @@ test('review invitations stay available, share cooldowns, and open this extensio
 
   await extensionCall(driver, async key => {
     await browser.storage.local.set({ [key]: {
-      firstUsedAt: Date.now() - 20 * 86400000,
+      firstUsedAt: Date.now() - 4 * 86400000,
       activeDays: ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05'],
       nextPromptAt: 0, lastDismissedAt: 0, lastReviewAt: 0
     } });

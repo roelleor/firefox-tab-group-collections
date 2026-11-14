@@ -2,6 +2,11 @@ Tab Group Collections Changelog
 
 Format: plain text, based on Keep a Changelog.
 
+Unreleased
+
+Changed
+- The sidebar review invitation becomes eligible after successful collection actions on five distinct days, without the additional two-week wait. Existing reminder cooldowns are unchanged.
+
 1.8.1 - 2026-11-11
 
 Fixed
